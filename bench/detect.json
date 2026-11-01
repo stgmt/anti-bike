@@ -1,0 +1,43 @@
+{
+  "findings": [
+    {
+      "project": "E--repos-carousel-demo",
+      "file": "3d9badd2-4ae9-4edc-a417-ea79556687c1.jsonl",
+      "window": 10,
+      "score": 0.6359027813644046,
+      "summaryChars": 1650,
+      "inputChars": 7119,
+      "lead": "- **Предложенные к созданию сущности/классы/слои:** «конфиг», «клиент шлюза», «агент», «сборка». Настройка слоёв маршрутизации и обработки для моделей: `Muse`, `Luna`, `Sol`, `Haiku`. - **Записанные файлы и новое содержимое:** - `carousel/config.py` — обновлен"
+    },
+    {
+      "project": "E--repos-carousel-demo",
+      "file": "5991cc66-3b95-43fa-a8ce-5122dd0292c7.jsonl",
+      "window": 20,
+      "score": 0.9941911379115043,
+      "summaryChars": 934,
+      "inputChars": 2573,
+      "lead": "- Сущности, классы и слои для создания: `references/reader-decisions.md`, временный вариант конфига. - Записанные файлы и новое в них: - `reports/graph-fixes/subscription-reader-options-20261028.md`: дизайн подключения учебных случаев к графу, описание передач"
+    },
+    {
+      "project": "E--repos-carousel-demo",
+      "file": "5991cc66-3b95-43fa-a8ce-5122dd0292c7.jsonl",
+      "window": 22,
+      "score": 0.9996621700380226,
+      "summaryChars": 3133,
+      "inputChars": 37656,
+      "lead": "**Сущности, классы и слои для создания (дословно)** - `ReaderExamples` (frozen dataclass) - `ReaderProfile`, `load_reader` (адаптация существующих типов) - Узлы `analyze`, `story` (расширение входных параметров) - Слой проводки `wiring.py` (дополнение зависимо"
+    },
+    {
+      "project": "E--repos-carousel-demo",
+      "file": "5991cc66-3b95-43fa-a8ce-5122dd0292c7.jsonl",
+      "window": 51,
+      "score": 0.9995931890481549,
+      "summaryChars": 1411,
+      "inputChars": 11753,
+      "lead": "- **Какие сущности, классы и слои предлагал СОЗДАТЬ:** - `RunContext` (объект «окружение шага» для передачи `prices`, `budget_limit`, `limits`, `max_output_tokens`, `clock`). - предложил своё вместо `langgraph.StateGraph(context_schema=StepContext)` и `langgra"
+    }
+  ],
+  "seen": 80,
+  "empty": 10,
+  "cost": 0.048615227400000016
+}
