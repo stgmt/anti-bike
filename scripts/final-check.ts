@@ -27,10 +27,8 @@ interrupt; pydantic 2.13.5; порты typing.Protocol в carousel/ports.py; Pyd
 
 const MODELS = [
   "qwen/qwen3.7-flash",
+  "qwen/qwen3.8-flash",
   "openai/gpt-oss-120b",
-  "meta-llama/llama-3.1-8b-instruct",
-  "inference-net/schematron-v2-turbo",
-  "google/gemini-2.5-flash",
 ];
 const RUNS = 3;
 
