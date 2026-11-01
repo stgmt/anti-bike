@@ -177,8 +177,9 @@ async function main(): Promise<void> {
     + `транскрипта, ≈${Math.round(stream / 3.2).toLocaleString("ru")} токенов`);
 
   if (dumpPath) {
-    await writeFile(dumpPath, dumped.map((line) => `[${line.who}] ${line.text}`).join("\n\n"), "utf8");
-    console.log(`\nвыгружено в ${dumpPath}`);
+    // JSONL: ответы сами содержат пустые строки, склейка через "\n\n" их режет.
+    await writeFile(dumpPath, dumped.map((line) => JSON.stringify(line)).join("\n") + "\n", "utf8");
+    console.log(`\nвыгружено в ${dumpPath} (${dumped.length} записей)`);
   }
 }
 
