@@ -13,6 +13,7 @@
 
 import { type Verdict, classify } from "./classify.ts";
 import { type Found, findDeclarations, splitByExistence } from "./exists.ts";
+import { retryTransient } from "./retry.ts";
 import { type Summary, summarize } from "./summarize.ts";
 
 export type WindowKind = "bike" | "clean" | "no-signal" | "error";
@@ -27,6 +28,8 @@ export interface WindowResult {
   exists: Found[];
   /** Из названного в пакете нет. */
   absent: string[];
+  /** Корни, которых нет на диске: проверка не состоялась. */
+  missingRoots: string[];
   summary: Summary | null;
   verdict: Verdict | null;
   cost: number;
@@ -101,6 +104,7 @@ export async function judgeWindow(
     proposed: [],
     exists: [],
     absent: [],
+    missingRoots: [],
     summary: null,
     verdict: null,
     cost: 0,
@@ -129,10 +133,33 @@ export async function judgeWindow(
   base.proposed = proposed;
 
   // Названо что-то, что уже объявлено в пакете — это работа, а не дубль.
-  const found = await findDeclarations(proposed, { roots: deps.roots });
+  let found: Found[];
+  let missingRoots: string[];
+  try {
+    ({ found, missingRoots } = await findDeclarations(proposed, { roots: deps.roots }));
+  } catch (error) {
+    return {
+      ...base,
+      kind: "no-signal",
+      reason: "проверка существования не отработала: это не «чисто»",
+      error: String(error).slice(0, 200),
+      ms: Math.round(performance.now() - started),
+    };
+  }
   const { exists, absent } = splitByExistence(proposed, found);
   base.exists = exists;
   base.absent = absent;
+  base.missingRoots = missingRoots;
+
+  // Проверки не было — судить не по чему: говорим прямо, а не «нет».
+  if (missingRoots.length > 0 && found.length === 0) {
+    return {
+      ...base,
+      kind: "no-signal",
+      reason: `проверка существования не состоялась: нет каталога ${missingRoots.join(", ")}`,
+      ms: Math.round(performance.now() - started),
+    };
+  }
 
   if (proposed.length > 0 && absent.length === 0) {
     return {
@@ -145,10 +172,11 @@ export async function judgeWindow(
 
   let verdict: Verdict;
   try {
-    verdict = await classify(summary.text, deps.ready, {
+    // Временная занятость модели — не повод терять окно.
+    verdict = await retryTransient(() => classify(summary.text, deps.ready, {
       apiKey: deps.apiKey,
       threshold: deps.threshold,
-    });
+    }));
   } catch (error) {
     return { ...base, reason: "классификатор не отработал", error: String(error).slice(0, 200), ms: Math.round(performance.now() - started) };
   }

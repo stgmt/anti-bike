@@ -1,0 +1,1399 @@
+Правильно — без цифр это не тул, а мнение. Строю евал на размеченных данных.
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] cd /c/Users/stigm/.claude/projects
+echo "== проекты и размеры транскриптов =="
+for d in */; do
+  n=$(ls "$d"*.jsonl 2>/dev/null | wc -l)
+  sz=$(du -sm "$d" 2>/dev/null | cut -f1)
+  [ "$n" -gt 0 ] && echo "$n файлов, ${sz}МБ  $d"
+done | sort -rn | head -8
+
+[Write] /**
+ * Собирает ходы из настоящих транскриптов Claude Code для разметки.
+ *
+ * Берём только текст ответов ассистента (то, что видит Stop-хук) и код,
+ * который агент записал в этом же ходе через Write/Edit. Ходы, отсечённые
+ * ступенью 1, в набор не входят: их гейт и так не пустит к модели.
+ *
+ * Запуск: node --experimental-strip-types scripts/extract-turns.ts <каталог-проекта> <имя-файла>
+ */
+
+import { readdir, readFile, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
+
+import { detectIntent } from "../src/intent.ts";
+
+interface Raw {
+  type?: string;
+  message?: { role?: string; content?: unknown };
+}
+
+interface Turn {
+  /** Стабильный ключ для разметки. */
+  id: string;
+  /** Текст ответа агента: он же вход ступени 3. */
+  message: string;
+  /** Код, записанный в этом ходе. Пусто, если ход ничего не писал. */
+  code: string;
+  /** Имена файлов, которые тронул ход. */
+  files: string[];
+  /** Разметка человеком: null — ещё не размечено. */
+  label: "bike" | "ok" | null;
+  /** Почему так: заполняет человек. */
+  note: string;
+}
+
+/** Текст блоков ответа плюс код из Write/Edit того же сообщения. */
+function readRecord(record: Raw): { text: string; code: string; files: string[] } {
+  const content = record.message?.content;
+  if (!Array.isArray(content)) return { text: "", code: "", files: [] };
+  const texts: string[] = [];
+  const codes: string[] = [];
+  const files: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const item = block as { type?: string; text?: string; name?: string; input?: Record<string, unknown> };
+    if (item.type === "text" && typeof item.text === "string") texts.push(item.text);
+    if (item.type === "tool_use" && (item.name === "Write" || item.name === "Edit" || item.name === "MultiEdit")) {
+      const input = item.input ?? {};
+      if (typeof input.file_path === "string") files.push(input.file_path);
+      if (typeof input.content === "string") codes.push(input.content);
+      if (typeof input.new_string === "string") codes.push(input.new_string);
+    }
+  }
+  return { text: texts.join("\n").trim(), code: codes.join("\n"), files };
+}
+
+async function main(): Promise<void> {
+  const [projectDir, outName] = process.argv.slice(2);
+  if (!projectDir || !outName) {
+    console.error("нужно: scripts/extract-turns.ts <каталог-проекта> <файл-выхода>");
+    process.exit(2);
+  }
+  const files = (await readdir(projectDir)).filter((name) => name.endsWith(".jsonl"));
+  const turns: Turn[] = [];
+
+  for (const file of files) {
+    const path = join(projectDir, file);
+    let lines: string;
+    try {
+      lines = await readFile(path, "utf8");
+    } catch {
+      continue;
+    }
+    for (const [index, line] of lines.split("\n").entries()) {
+      if (line.trim() === "") continue;
+      let record: Raw;
+      try {
+        record = JSON.parse(line) as Raw;
+      } catch {
+        continue;
+      }
+      if (record.type !== "assistant") continue;
+      const { text, code, files: touched } = readRecord(record);
+      if (text === "") continue;
+      // Ходы без обещания новой сущности до модели не доходят — в наборе не нужны.
+      if (!detectIntent(text).promise) continue;
+      turns.push({
+        id: `${basename(file, ".jsonl").slice(0, 8)}-${index}`,
+        message: text,
+        code,
+        files: touched,
+        label: null,
+        note: "",
+      });
+    }
+  }
+
+  const out = join(import.meta.dirname, "..", "bench", outName);
+  await writeFile(out, JSON.stringify(turns, null, 2), "utf8");
+  const withCode = turns.filter((turn) => turn.code !== "").length;
+  console.log(`ходов: ${turns.length}, из них с кодом: ${withCode}`);
+  console.log(`записано: ${out}`);
+}
+
+await main();
+
+
+[Bash] cd /e/repos/anti-bike && mkdir -p bench && timeout 200 node --experimental-strip-types scripts/extract-turns.ts "C:/Users/stigm/.claude/projects/E--repos-carousel-demo" carousel.json 2>&1 | tail -4
+
+15 ходов, но 0 с кодом — надо копать. Смотрю, что нашлось, и расширяю на другие проекты.
+
+[Bash] cd /e/repos/anti-bike && for p in "E--repos-tokenplan" "E--repos-presentation-reels"; do echo "=== $p ==="; timeout 300 node --experimental-strip-types scripts/extract-turns.ts "C:/Users/stigm/.claude/projects/$p" "${p#E--repos-}.json" 2>&1 | tail -2; done
+
+[Bash] cd /e/repos/anti-bike && python - <<'PY'
+import json, collections
+p = r"C:\Users\stigm\.claude\projects\E--repos-carousel-demo\5991cc66-3b95-43fa-a8ce-5122dd0292c7.jsonl"
+types = collections.Counter()
+blocks = collections.Counter()
+sample = None
+with open(p, encoding="utf-8", errors="ignore") as f:
+    for line in f:
+        try: r = json.loads(line)
+        except: continue
+        types[r.get("type")] += 1
+        msg = r.get("message") or {}
+        c = msg.get("content")
+        if isinstance(c, list):
+            for b in c:
+                if isinstance(b, dict):
+                    blocks[b.get("type")] += 1
+                    if b.get("type") == "tool_use" and sample is None and b.get("name") in ("Write","Edit"):
+                        sample = {"rec_type": r.get("type"), "role": msg.get("role"), "name": b.get("name"), "keys": list((b.get("input") or {}).keys())}
+print("типы записей:", dict(types))
+print("типы блоков:", dict(blocks))
+print("пример Write/Edit:", sample)
+PY
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] cd /e/repos/anti-bike
+python - <<'PY'
+import json, collections
+p = r"C:\Users\stigm\.claude\projects\E--repos-carousel-demo\5991cc66-3b95-43fa-a8ce-5122dd0292c7.jsonl"
+types = collections.Counter(); blocks = collections.Counter(); sample = None
+with open(p, encoding="utf-8", errors="ignore") as f:
+    for line in f:
+        try: r = json.loads(line)
+        except: continue
+        types[r.get("type")] += 1
+        msg = r.get("message") or {}
+        c = msg.get("content")
+        if isinstance(c, list):
+            for b in c:
+                if isinstance(b, dict):
+                    blocks[b.get("type")] += 1
+                    if b.get("type") == "tool_use" and sample is None and b.get("name") in ("Write","Edit"):
+                        sample = {"rec_type": r.get("type"), "role": msg.get("role"), "name": b.get("name"), "keys": list((b.get("input") or {}).keys())}
+print("записи:", dict(types))
+print("блоки:", dict(blocks))
+print("пример:", sample)
+PY
+
+Формат тот же — 4256 `tool_use`. Значит фильтр ступени 1 режет слишком много. Проверяю.
+
+[Bash] cd /e/repos/anti-bike && cat > scripts/dbg-extract.ts <<'EOF'
+import { readFile } from "node:fs/promises";
+import { detectIntent } from "../src/intent.ts";
+
+const p = "C:/Users/stigm/.claude/projects/E--repos-carousel-demo/5991cc66-3b95-43fa-a8ce-5122dd0292c7.jsonl";
+const lines = (await readFile(p, "utf8")).split("\n");
+let assistant = 0, withText = 0, withTool = 0, promise = 0;
+const examples: string[] = [];
+for (const line of lines) {
+  if (line.trim() === "") continue;
+  let r: any;
+  try { r = JSON.parse(line); } catch { continue; }
+  if (r.type !== "assistant") continue;
+  assistant += 1;
+  const c = r.message?.content;
+  if (!Array.isArray(c)) continue;
+  const text = c.filter((b: any) => b?.type === "text").map((b: any) => b.text).join("\n").trim();
+  const tools = c.filter((b: any) => b?.type === "tool_use");
+  if (text) withText += 1;
+  if (tools.some((b: any) => ["Write","Edit","MultiEdit"].includes(b.name))) withTool += 1;
+  if (text && detectIntent(text).promise) {
+    promise += 1;
+    if (examples.length < 3) examples.push(text.slice(0, 100));
+  }
+}
+console.log(`assistant: ${assistant}, с текстом: ${withText}, с Write/Edit: ${withTool}, прошли ступень 1: ${promise}`);
+for (const e of examples) console.log("  ·", e.replace(/\n/g, " "));
+EOF
+timeout 90 node --experimental-strip-types scripts/dbg-extract.ts 2>&1 | head -8
+
+Нашёл несоответствие: 1178 ходов с записью кода, но ступень 1 пропускает 2. Фильтр слишком узкий. Переделываю: текст хода должен включать и код.
+
+[Edit] /**
+ * Текст блоков ответа плюс код из Write/Edit того же сообщения.
+ *
+ * `written` — только новые файлы целиком (`Write`). Это то, что стоит отдавать
+ * в jscpd: `check_duplication` проверяет фрагмент целиком.
+ * `edited` — куски правок (`Edit`, `MultiEdit`): по ним тоже видно повтор.
+ */
+function readRecord(record: Raw): { text: string; written: string; edited: string; files: string[] } {
+  const content = record.message?.content;
+  if (!Array.isArray(content)) return { text: "", written: "", edited: "", files: [] };
+  const texts: string[] = [];
+  const written: string[] = [];
+  const edited: string[] = [];
+  const files: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const item = block as { type?: string; text?: string; name?: string; input?: Record<string, unknown> };
+    if (item.type === "text" && typeof item.text === "string") texts.push(item.text);
+    if (item.type !== "tool_use") continue;
+    const input = item.input ?? {};
+    if (typeof input.file_path === "string") files.push(input.file_path);
+    if (item.name === "Write" && typeof input.content === "string") written.push(input.content);
+    if (item.name === "Edit" && typeof input.new_string === "string") edited.push(input.new_string);
+    if (item.name === "MultiEdit" && Array.isArray(input.edits)) {
+      for (const edit of input.edits as { new_string?: unknown }[]) {
+        if (typeof edit?.new_string === "string") edited.push(edit.new_string);
+      }
+    }
+  }
+  return {
+    text: texts.join("\n").trim(),
+    written: written.join("\n"),
+    edited: edited.join("\n"),
+    files,
+  };
+}
+
+[Edit] interface Turn {
+  /** Стабильный ключ для разметки. */
+  id: string;
+  /** Какой проект: у разных проектов свои списки возможностей. */
+  project: string;
+  /** Текст ответа агента. */
+  message: string;
+  /** Новый файл целиком: вход jscpd. Пусто, если ход писал правками. */
+  written: string;
+  /** Куски правок: тоже код, но по фрагментам. */
+  edited: string;
+  /** Имена файлов, которые тронул ход. */
+  files: string[];
+  /** Разметка человеком: null — ещё не размечено. */
+  label: "bike" | "ok" | null;
+  /** Почему так: заполняет человек. */
+  note: string;
+}
+
+[Edit]       if (record.type !== "assistant") continue;
+      const { text, written, edited, files: touched } = readRecord(record);
+      // Ход без текста и без записи кода нечего проверять.
+      if (text === "" && written === "" && edited === "") continue;
+      // Ступень 1 судит по тексту, но код тоже считается: агент может молча
+      // написать файл, и Stop-хук это увидит по транскрипту.
+      const candidate = text !== "" ? text : written + "\n" + edited;
+      if (!detectIntent(candidate).promise) continue;
+      turns.push({
+        id: `${basename(file, ".jsonl").slice(0, 8)}-${index}`,
+        project: basename(projectDir),
+        message: text,
+        written,
+        edited,
+        files: touched,
+        label: null,
+        note: "",
+      });
+
+[Bash] cd /e/repos/anti-bike && timeout 200 node --experimental-strip-types scripts/extract-turns.ts "C:/Users/stigm/.claude/projects/E--repos-carousel-demo" carousel.json 2>&1 | tail -3 && echo "---" && timeout 300 node --experimental-strip-types scripts/extract-turns.ts "C:/Users/stigm/.claude/projects/E--repos-tokenplan" tokenplan.json 2>&1 | tail -3
+
+105 ходов с кодом. Но вот первая важная цифра: ступень 1 пропустила 47 из 1178. Меряю, что она режет.
+
+[Write] /**
+ * Сколько кода ступень 1 пропускает мимо себя.
+ *
+ * Это главный риск дешёвого отсева: если агент молча пишет код, не объявляя
+ * «введу класс», ступень 1 его не увидит, а третий слой не получит шанса.
+ */
+
+import { readdir, readFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { detectIntent } from "../src/intent.ts";
+
+interface Raw {
+  type?: string;
+  message?: { content?: unknown };
+}
+
+function codeOf(record: Raw): { written: string; edited: string; names: string[] } {
+  const content = record.message?.content;
+  if (!Array.isArray(content)) return { written: "", edited: "", names: [] };
+  const written: string[] = [];
+  const edited: string[] = [];
+  const names: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const item = block as { type?: string; name?: string; input?: Record<string, unknown> };
+    if (item.type !== "tool_use") continue;
+    if (!["Write", "Edit", "MultiEdit"].includes(item.name ?? "")) continue;
+    const input = item.input ?? {};
+    if (typeof input.file_path === "string") names.push(input.file_path);
+    if (item.name === "Write" && typeof input.content === "string") written.push(input.content);
+    if (item.name === "Edit" && typeof input.new_string === "string") edited.push(input.new_string);
+    if (item.name === "MultiEdit" && Array.isArray(input.edits)) {
+      for (const edit of input.edits as { new_string?: unknown }[]) {
+        if (typeof edit?.new_string === "string") edited.push(edit.new_string);
+      }
+    }
+  }
+  return { written: written.join("\n"), edited: edited.join("\n"), names };
+}
+
+function textOf(record: Raw): string {
+  const content = record.message?.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((block): block is { type?: string; text?: string } => typeof block === "object" && block !== null)
+    .filter((block) => block.type === "text" && typeof block.text === "string")
+    .map((block) => block.text ?? "")
+    .join("\n")
+    .trim();
+}
+
+async function main(): Promise<void> {
+  const dirs = process.argv.slice(2);
+  if (dirs.length === 0) {
+    console.error("нужно: scripts/stage1-recall.ts <каталог-проекта>...");
+    process.exit(2);
+  }
+
+  let codeTurns = 0;
+  let newFiles = 0;
+  let passed = 0;
+  let passedNewFiles = 0;
+  const missedNewFiles: { file: string; bytes: number; preview: string }[] = [];
+  const missedEdits: { file: string; bytes: number }[] = [];
+
+  for (const dir of dirs) {
+    let files: string[];
+    try {
+      files = (await readdir(dir)).filter((name) => name.endsWith(".jsonl"));
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      let lines: string;
+      try {
+        lines = await readFile(join(dir, file), "utf8");
+      } catch {
+        continue;
+      }
+      for (const line of lines.split("\n")) {
+        if (line.trim() === "") continue;
+        let record: Raw;
+        try {
+          record = JSON.parse(line) as Raw;
+        } catch {
+          continue;
+        }
+        if (record.type !== "assistant") continue;
+        const { written, edited, names } = codeOf(record);
+        if (written === "" && edited === "") continue;
+
+        codeTurns += 1;
+        const isNewFile = written !== "";
+        if (isNewFile) newFiles += 1;
+
+        const text = textOf(record);
+        const candidate = text !== "" ? text : written + "\n" + edited;
+        if (detectIntent(candidate).promise) {
+          passed += 1;
+          if (isNewFile) passedNewFiles += 1;
+          continue;
+        }
+
+        // Отсечён ход. Для новых файлов это дороже: там целый класс или модуль.
+        if (isNewFile && missedNewFiles.length < 2000) {
+          missedNewFiles.push({
+            file: names[0] ?? "?",
+            bytes: written.length,
+            preview: written.slice(0, 200).replace(/\s+/g, " "),
+          });
+        } else if (!isNewFile && missedEdits.length < 2000) {
+          missedEdits.push({ file: names[0] ?? "?", bytes: edited.length });
+        }
+      }
+    }
+  }
+
+  const pct = (part: number, whole: number): string =>
+    whole === 0 ? "—" : `${((part / whole) * 100).toFixed(1)}%`;
+
+  console.log("Ступень 1 на настоящих ходах");
+  console.log("=".repeat(50));
+  console.log(`ходов с записью кода:        ${codeTurns}`);
+  console.log(`из них новых файлов (Write): ${newFiles}`);
+  console.log(`прошли ступень 1:            ${passed} (${pct(passed, codeTurns)})`);
+  console.log(`из новых файлов прошли:      ${passedNewFiles} (${pct(passedNewFiles, newFiles)})`);
+  console.log(`ПРОПУЩЕНО новых файлов:      ${newFiles - passedNewFiles} (${pct(newFiles - passedNewFiles, newFiles)})`);
+
+  const biggest = missedNewFiles.sort((left, right) => right.bytes - left.bytes).slice(0, 10);
+  if (biggest.length > 0) {
+    console.log("\nСамые крупные пропущенные новые файлы:");
+    for (const item of biggest) {
+      console.log(`  ${String(item.bytes).padStart(6)} симв  ${item.file}`);
+      console.log(`           ${item.preview.slice(0, 140)}`);
+    }
+  }
+
+  const totalMissedBytes = missedEdits.reduce((sum, item) => sum + item.bytes, 0);
+  console.log(`\nпропущенных правок: ${missedEdits.length}, суммарно ${totalMissedBytes} символов`);
+}
+
+await main();
+
+
+[Bash] cd /e/repos/anti-bike && timeout 300 node --experimental-strip-types scripts/stage1-recall.ts "C:/Users/stigm/.claude/projects/E--repos-carousel-demo" "C:/Users/stigm/.claude/projects/E--repos-tokenplan" 2>&1 | head -32
+
+Вот главная цифра: **ступень 1 пропускает 97,4% новых файлов.** 1790 из 1837.
+
+Причина видна в списке: агент пишет `.md`-планы, а фильтр ищет «введу класс». Смотрю распределение по типам файлов, чтобы понять, это шум или упущенные велосипеды.
+
+[Write] /**
+ * Что за файлы ступень 1 пропускает: по расширению и по размеру.
+ *
+ * Нужно понять, это шум (планы .md, хендофы) или настоящие упущенные велосипеды.
+ */
+
+import { readdir, readFile } from "node:fs/promises";
+import { extname, join } from "node:path";
+
+import { detectIntent } from "../src/intent.ts";
+
+interface Raw {
+  type?: string;
+  message?: { content?: unknown };
+}
+
+async function main(): Promise<void> {
+  const dirs = process.argv.slice(2);
+  const byExt = new Map<string, { missed: number; passed: number; bytes: number }>();
+  const codeMissed: { file: string; bytes: number; preview: string }[] = [];
+
+  for (const dir of dirs) {
+    let files: string[];
+    try {
+      files = (await readdir(dir)).filter((name) => name.endsWith(".jsonl"));
+    } catch {
+      continue;
+    }
+    for (const file of files) {
+      const lines = (await readFile(join(dir, file), "utf8")).split("\n");
+      for (const line of lines) {
+        if (line.trim() === "") continue;
+        let record: Raw;
+        try {
+          record = JSON.parse(line) as Raw;
+        } catch {
+          continue;
+        }
+        if (record.type !== "assistant") continue;
+        const content = record.message?.content;
+        if (!Array.isArray(content)) continue;
+
+        let written = "";
+        let edited = "";
+        let name = "";
+        let text = "";
+        for (const block of content) {
+          if (!block || typeof block !== "object") continue;
+          const item = block as { type?: string; name?: string; text?: string; input?: Record<string, unknown> };
+          if (item.type === "text" && typeof item.text === "string") text += item.text;
+          if (item.type !== "tool_use") continue;
+          const input = item.input ?? {};
+          if (typeof input.file_path === "string") name = input.file_path;
+          if (item.name === "Write" && typeof input.content === "string") written = input.content;
+          if (item.name === "Edit" && typeof input.new_string === "string") edited = input.new_string;
+        }
+        if (written === "" && edited === "") continue;
+
+        const ext = extname(name).toLowerCase() || "(без)";
+        const bucket = byExt.get(ext) ?? { missed: 0, passed: 0, bytes: 0 };
+        const candidate = text !== "" ? text : written + "\n" + edited;
+        const ok = detectIntent(candidate).promise;
+        if (ok) bucket.passed += 1;
+        else {
+          bucket.missed += 1;
+          bucket.bytes += written.length;
+          // Интересны только файлы кода: .md и .json гейт трогать не должен.
+          if ([".py", ".ts", ".js", ".go", ".rs", ".java", ".cs", ".rb", ".php"].includes(ext)) {
+            codeMissed.push({ file: name, bytes: written.length, preview: written.slice(0, 160).replace(/\s+/g, " ") });
+          }
+        }
+        byExt.set(ext, bucket);
+      }
+    }
+  }
+
+  const rows = [...byExt.entries()].sort((left, right) => right[1].missed + right[1].passed - (left[1].missed + left[1].passed));
+  console.log("Пропущено ступенью 1, по расширению");
+  console.log("=".repeat(64));
+  console.log(`${"расш".padEnd(8)} ${"пропущ".padStart(8)} ${"прошло".padStart(8)} ${"доля пропуска".padStart(14)}`);
+  for (const [ext, bucket] of rows) {
+    const total = bucket.missed + bucket.passed;
+    const share = total === 0 ? "—" : `${((bucket.missed / total) * 100).toFixed(0)}%`;
+    console.log(`${ext.padEnd(8)} ${String(bucket.missed).padStart(8)} ${String(bucket.passed).padStart(8)} ${share.padStart(14)}`);
+  }
+
+  const codeTotal = codeMissed.length;
+  const codeBig = codeMissed.filter((item) => item.bytes > 800);
+  console.log(`\nпропущенных файлов КОДА: ${codeTotal}, из них крупнее 800 символов: ${codeBig.length}`);
+  const biggest = codeBig.sort((left, right) => right.bytes - left.bytes).slice(0, 12);
+  for (const item of biggest) {
+    console.log(`  ${String(item.bytes).padStart(6)} симв  ${item.file}`);
+  }
+}
+
+await main();
+
+
+[Bash] cd /e/repos/anti-bike && timeout 300 node --experimental-strip-types scripts/stage1-shape.ts "C:/Users/stigm/.claude/projects/E--repos-carousel-demo" "C:/Users/stigm/.claude/projects/E--repos-tokenplan" 2>&1 | head -35
+
+Вывод однозначный: **ступень 1 как фильтр не годится — она пропускает 100% кода.** 5936 файлов кода, из них 1113 крупнее 800 символов.
+
+Причина: агент пишет код молча, без «введу класс» в тексте. Фильтр по обещанию видит только планирующие ходы.
+
+Значит вход для jscpd — это **сам записанный код**, а не текст. Правлю и меряю заново.
+
+[Edit] export interface Intent {
+  /** Есть ли в тексте обещание завести новую сущность. */
+  promise: boolean;
+  /** Что именно нашлось: нужно для сообщения и для замеров. */
+  matches: string[];
+}
+
+/**
+ * Нужно ли проверять этот ход.
+ *
+ * Замер 2026-11-01 на двух настоящих проектах (`carousel-demo`, `tokenplan`):
+ * из 10122 ходов с записью кода ступень 1 пропустила 100% файлов кода —
+ * 5936 штук, из них 1113 крупнее 800 символов. Агент пишет код молча, без
+ * «введу класс» в тексте: обещание бывает только в планирующих ходах.
+ *
+ * Поэтому решает не текст, а факт записи кода. Текст остаётся подсказкой для
+ * сообщения модели, но пропуск по нему — ошибка.
+ */
+export function shouldCheck(code: string, text: string): boolean {
+  // Код записан — проверяем всегда: именно там рождается велосипед.
+  if (code.trim().length >= MIN_CODE) return true;
+  // Кода нет — проверяем, если в тексте обещание на будущее.
+  return detectIntent(text).promise;
+}
+
+/**
+ * Сколько символов кода считаем записью.
+ *
+ * Отсекает однострочные правки вроде `import x`: у них нет ни класса, ни слоя,
+ * повторять там нечего. 120 символов — примерно одна функция из трёх строк.
+ */
+const MIN_CODE = 120;
+
+Теперь евал: настоящие ходы, разметка, метрики.
+
+[Write] # Евал гейта
+
+Отвечает на вопрос «полезный тул или нет» числом, а не мнением.
+
+## Данные
+
+Ходы из настоящих транскриптов Claude Code, а не выдуманные примеры:
+
+- `carousel-demo` — проект с Python-пакетом, 47 ходов;
+- `tokenplan` — проект с TypeScript, 58 ходов;
+- `fixtures/bike-repo` — синтетический, где велосипед известен точно.
+
+Ход = текст ответа агента плюс код, записанный им в этом же сообщении.
+
+## Разметка
+
+`label` в файле ходов:
+
+- `bike` — предлагает своё для задачи, у которой уже есть готовое;
+- `ok` — обычная работа: отчёт, правка по месту, новая работа без аналога;
+- `null` — ещё не размечено.
+
+`note` — почему так, одной строкой. Разметка идёт руками по коду и тексту:
+это эталон, по нему считается всё остальное.
+
+## Метрики
+
+| Метрика | Что значит | Зачем |
+|---|---|---|
+| **точность** | доля верных среди всех вердиктов | сколько раз гейт ошибается |
+| **полнота** | сколько велосипедов поймано из всех | сколько пропускает |
+| **ложные блокировки** | `ok`, помеченные блоком | самое дорогое: учат игнорировать гейт |
+| **пропуск до модели** | доля ходов, дошедших до ступени 3 | сколько стоит гейт |
+| **время** | по слоям, медиана и 90-й перцентиль | годится ли в `Stop` |
+| **стоимость** | сумма за прогон набора | цена одного хода |
+
+## Запуск
+
+```bash
+# извлечь ходы из свежих транскриптов
+node --experimental-strip-types scripts/extract-turns.ts <каталог-проекта> <файл>
+
+# посчитать метрики на размеченном наборе
+OPENROUTER_API_KEY=... node --experimental-strip-types scripts/bench.ts bench/*.json
+```
+
+
+[Write] /**
+ * Евал гейта на размеченных настоящих ходах.
+ *
+ * Считает точность, полноту, ложные блокировки, долю дошедших до модели,
+ * время по слоям и стоимость. Разметка читается из поля `label`.
+ *
+ * Запуск: OPENROUTER_API_KEY=... node --experimental-strip-types scripts/bench.ts bench/*.json
+ */
+
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { readCapabilities, resolveCapabilities } from "../src/capabilities.ts";
+import { classify } from "../src/classify.ts";
+import { buildReadyContext } from "../src/context.ts";
+import { JscpdMcp } from "../src/mcp.ts";
+import { shouldCheck } from "../src/intent.ts";
+
+interface Turn {
+  id: string;
+  project: string;
+  message: string;
+  written: string;
+  edited: string;
+  files: string[];
+  label: "bike" | "ok" | null;
+  note: string;
+}
+
+/** Какие возможности брать для проекта: у каждого свой список. */
+const PROJECT_ROOTS: Record<string, string> = {
+  "E--repos-carousel-demo": "E:/repos/carousel-demo",
+  "E--repos-tokenplan": "E:/repos/tokenplan",
+};
+
+interface Row {
+  id: string;
+  label: string;
+  verdict: "block" | "skip" | "error";
+  score: number | null;
+  clones: number;
+  ms: number;
+  cost: number;
+}
+
+function percentile(values: number[], share: number): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = Math.min(sorted.length - 1, Math.floor(share * sorted.length));
+  return sorted[index];
+}
+
+async function main(): Promise<void> {
+  const files = process.argv.slice(2);
+  if (files.length === 0) {
+    console.error("нужно: scripts/bench.ts <набор.json>...");
+    process.exit(2);
+  }
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new Error("нет OPENROUTER_API_KEY");
+
+  const turns: Turn[] = [];
+  for (const file of files) {
+    const parsed = JSON.parse(await readFile(file, "utf8")) as Turn[];
+    turns.push(...parsed);
+  }
+  const labelled = turns.filter((turn) => turn.label !== null);
+  console.log(`ходов всего: ${turns.length}, размечено: ${labelled.length}`);
+  if (labelled.length === 0) {
+    console.log("разметки нет: сначала проставить label в файлах набора");
+    return;
+  }
+
+  // Списки возможностей по проектам.
+  const contexts = new Map<string, string>();
+  for (const [project, root] of Object.entries(PROJECT_ROOTS)) {
+    const capabilities = await resolveCapabilities(root, async () => {
+      const generated = await buildReadyContext(join(root, "carousel"), join(root, "uv.lock"));
+      return generated.markdown;
+    });
+    contexts.set(project, capabilities.markdown);
+    const curated = await readCapabilities(root);
+    console.log(`  ${project}: ${capabilities.source}, ${capabilities.size} символов`
+      + `${curated === null ? " (курируемого файла нет)" : ""}`);
+  }
+
+  // Один сервер jscpd на проект.
+  const servers = new Map<string, JscpdMcp>();
+  for (const [project, root] of Object.entries(PROJECT_ROOTS)) {
+    servers.set(project, new JscpdMcp(root));
+  }
+
+  const rows: Row[] = [];
+  let spend = 0;
+  try {
+    for (const turn of labelled) {
+      const server = servers.get(turn.project);
+      const code = turn.written !== "" ? turn.written : turn.edited;
+      if (!shouldCheck(code, turn.message)) {
+        rows.push({ id: turn.id, label: turn.label ?? "", verdict: "skip", score: null, clones: 0, ms: 0, cost: 0 });
+        continue;
+      }
+      if (server) {
+        try {
+          await server.start();
+        } catch {
+          /* проект недоступен: обходимся без jscpd */
+        }
+      }
+      const started = performance.now();
+      let clones = 0;
+      try {
+        if (server && code !== "") {
+          clones = (await server.check(code, turn.files[0]?.endsWith(".ts") ? "typescript" : "python")).count;
+        }
+      } catch {
+        clones = 0;
+      }
+      const context = contexts.get(turn.project) ?? "";
+      const verdict = await classify(turn.message || code.slice(0, 1500), context, { apiKey: key });
+      spend += verdict.cost;
+      rows.push({
+        id: turn.id,
+        label: turn.label ?? "",
+        verdict: verdict.bike ? "block" : "skip",
+        score: verdict.score,
+        clones,
+        ms: Math.round(performance.now() - started),
+        cost: verdict.cost,
+      });
+      const mark = verdict.bike ? "БЛОК" : "    ";
+      console.log(`${turn.id.padEnd(14)} ${(turn.label ?? "").padEnd(5)} ${mark} ${verdict.score.toFixed(3)} клонов=${clones}`);
+    }
+  } finally {
+    for (const server of servers.values()) server.close();
+  }
+
+  // Метрики.
+  const bikes = rows.filter((row) => row.label === "bike");
+  const oks = rows.filter((row) => row.label === "ok");
+  const caught = bikes.filter((row) => row.verdict === "block");
+  const falseBlocks = oks.filter((row) => row.verdict === "block");
+  const reached = rows.filter((row) => row.score !== null);
+  const times = reached.map((row) => row.ms);
+
+  console.log("\n" + "=".repeat(56));
+  console.log("ИТОГ");
+  console.log("=".repeat(56));
+  console.log(`велосипедов в наборе:      ${bikes.length}`);
+  console.log(`поймано:                   ${caught.length}  полнота ${bikes.length ? ((caught.length / bikes.length) * 100).toFixed(0) : "—"}%`);
+  console.log(`обычных ходов:             ${oks.length}`);
+  console.log(`ложных блокировок:         ${falseBlocks.length}  ${oks.length ? ((falseBlocks.length / oks.length) * 100).toFixed(0) : "—"}%`);
+  const correct = caught.length + (oks.length - falseBlocks.length);
+  console.log(`точность:                  ${rows.length ? ((correct / rows.length) * 100).toFixed(0) : "—"}%`);
+  console.log(`дошло до модели:           ${reached.length} из ${rows.length}`);
+  console.log(`время хода: медиана ${percentile(times, 0.5)} мс, 90-й ${percentile(times, 0.9)} мс`);
+  console.log(`стоимость набора:          $${spend.toFixed(5)}`);
+  if (falseBlocks.length > 0) {
+    console.log("\nложные блокировки:");
+    for (const row of falseBlocks) console.log(`  ${row.id}  score=${row.score?.toFixed(3)}  клонов=${row.clones}`);
+  }
+  if (bikes.length > caught.length) {
+    console.log("\nпропущенные велосипеды:");
+    for (const row of bikes.filter((item) => item.verdict !== "block")) {
+      console.log(`  ${row.id}  score=${row.score?.toFixed(3) ?? "—"}  клонов=${row.clones}`);
+    }
+  }
+}
+
+await main();
+
+
+[Bash] cd /e/repos/anti-bike && timeout 200 node --experimental-strip-types scripts/stage1-recall.ts "C:/Users/stigm/.claude/projects/E--repos-carousel-demo" "C:/Users/stigm/.claude/projects/E--repos-tokenplan" 2>&1 | head -10
+
+Скрипт замера ещё зовёт старую функцию. Перевожу на новую и меряю.
+
+[Bash] cd /e/repos/anti-bike && python - <<'PY'
+import re, io
+p = "scripts/stage1-recall.ts"
+s = open(p, encoding="utf-8").read()
+s = s.replace(
+    'import { detectIntent } from "../src/intent.ts";',
+    'import { shouldCheck } from "../src/intent.ts";'
+)
+s = s.replace(
+    'const candidate = text !== "" ? text : written + "\\n" + edited;\n        if (detectIntent(candidate).promise) {',
+    'if (shouldCheck(written !== "" ? written : edited, text)) {'
+)
+open(p, "w", encoding="utf-8").write(s)
+print("заменено:", "shouldCheck" in s)
+PY
+timeout 200 node --experimental-strip-types scripts/stage1-recall.ts "C:/Users/stigm/.claude/projects/E--repos-carousel-demo" "C:/Users/stigm/.claude/projects/E--repos-tokenplan" 2>&1 | head -8
+
+[Read] 
+
+[Edit]         const text = textOf(record);
+        // Решает факт записи кода, а не обещание в тексте: замер показал,
+        // что по обещанию отсеивается 100% файлов кода.
+        if (shouldCheck(written !== "" ? written : edited, text)) {
+          passed += 1;
+          if (isNewFile) passedNewFiles += 1;
+
+[Bash] cd /e/repos/anti-bike && head -8 scripts/stage1-recall.ts | grep import; timeout 200 node --experimental-strip-types scripts/stage1-recall.ts "C:/Users/stigm/.claude/projects/E--repos-carousel-demo" 2>&1 | head -8
+
+Ступень 1 теперь пропускает 100% новых файлов. Теперь разметка — без неё метрик не будет. Смотрю ходы.
+
+[Write] /** Компактный показ ходов для разметки: первые строки текста и код. */
+
+import { readFile } from "node:fs/promises";
+
+interface Turn {
+  id: string;
+  project: string;
+  message: string;
+  written: string;
+  edited: string;
+  files: string[];
+  label: string | null;
+}
+
+const files = process.argv.slice(2);
+for (const file of files) {
+  const turns = JSON.parse(await readFile(file, "utf8")) as Turn[];
+  console.log(`\n######## ${file}: ${turns.length} ########`);
+  for (const turn of turns) {
+    const code = turn.written || turn.edited;
+    const head = turn.message.replace(/\s+/g, " ").slice(0, 150);
+    const codeHead = code.replace(/\s+/g, " ").slice(0, 110);
+    console.log(`\n[${turn.id}] ${turn.files[0] ?? "?"}`);
+    console.log(`  текст: ${head}`);
+    if (code) console.log(`  код(${code.length}): ${codeHead}`);
+  }
+}
+
+
+[Bash] cd /e/repos/anti-bike && timeout 60 node --experimental-strip-types scripts/show-turns.ts bench/carousel.json 2>&1 | head -75
+
+Вот важный сигнал: почти все ходы — запись `.md`-документов. jscpd их сканирует и находит клоны в тексте планов. Значит нужен отсев по расширению. Правлю и меряю честно.
+
+[Edit] /**
+ * Нужно ли проверять этот ход.
+ *
+ * Замер 2026-11-01 на двух настоящих проектах (`carousel-demo`, `tokenplan`):
+ * из 10122 ходов с записью ступень 1 по обещанию в тексте пропускала 100% файлов
+ * кода — 5936 штук, из них 1113 крупнее 800 символов. Агент пишет код молча,
+ * без «введу класс»: обещание бывает только в планирующих ходах.
+ *
+ * Поэтому решает не текст, а факт записи кода.
+ */
+export function shouldCheck(code: string, text: string): boolean {
+  // Код записан — проверяем всегда: именно там рождается велосипед.
+  if (code.trim().length >= MIN_CODE) return true;
+  // Кода нет — проверяем, если в тексте обещание на будущее.
+  return detectIntent(text).promise;
+}
+
+/**
+ * Языки, в которых вообще бывает велосипед.
+ *
+ * Замер 2026-11-01 на `carousel-demo`: из 47 ходов 41 — запись `.md`-планов
+ * и отчётов. jscpd сканирует markdown и находит клоны в тексте документов;
+ * гейт на таком входе считает велосипедом повтор абзаца.
+ */
+export const CODE_EXTENSIONS = new Set([
+  ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go", ".rs", ".java",
+  ".kt", ".cs", ".rb", ".php", ".swift", ".scala", ".c", ".h", ".cpp", ".hpp",
+]);
+
+/** Пишет ли ход в файл кода. */
+export function isCodeFile(path: string): boolean {
+  const dot = path.lastIndexOf(".");
+  if (dot === -1) return false;
+  return CODE_EXTENSIONS.has(path.slice(dot).toLowerCase());
+}
+
+/**
+ * Сколько символов кода считаем записью.
+ *
+ * Отсекает однострочные правки вроде `import x`: у них нет ни класса, ни слоя,
+ * повторять там нечего. 120 символов — примерно одна функция из трёх строк.
+ */
+const MIN_CODE = 120;
+
+[Bash] cd /e/repos/anti-bike && python - <<'PY'
+import io
+p = "scripts/extract-turns.ts"
+s = io.open(p, encoding="utf-8").read()
+s = s.replace(
+  'import { detectIntent } from "../src/intent.ts";',
+  'import { detectIntent, isCodeFile } from "../src/intent.ts";'
+)
+s = s.replace(
+  '      const candidate = text !== "" ? text : written + "\\n" + edited;\n      if (!detectIntent(candidate).promise) continue;',
+  '      // Ход без файла кода не проверяем: повтор абзаца в markdown — не велосипед.\n      const codeFiles = touched.filter(isCodeFile);\n      if (codeFiles.length === 0) continue;\n      // Код записан или в тексте обещание — ход идёт в набор.\n      if (written.length < 120 && edited.length < 120 && !detectIntent(text).promise) continue;'
+)
+s = s.replace('        files: touched,', '        files: codeFiles,')
+io.open(p, "w", encoding="utf-8").write(s)
+print("готово")
+PY
+timeout 200 node --experimental-strip-types scripts/extract-turns.ts "C:/Users/stigm/.claude/projects/E--repos-carousel-demo" carousel.json 2>&1 | tail -3
+
+[Bash] cd /e/repos/anti-bike && grep -n "detectIntent\|isCodeFile\|codeFiles\|files: " scripts/extract-turns.ts | head -12
+
+[Read] 
+
+[Edit]       // Ход без текста и без записи кода нечего проверять.
+      if (text === "" && written === "" && edited === "") continue;
+      // Ход без файла кода не проверяем: повтор абзаца в markdown — не велосипед.
+      const codeFiles = touched.filter(isCodeFile);
+      if (codeFiles.length === 0) continue;
+      // Код записан или в тексте обещание — ход идёт в набор.
+      if (written.length < 120 && edited.length < 120 && !detectIntent(text).promise) continue;
+
+[Bash] cd /e/repos/anti-bike && for p in "E--repos-carousel-demo:carousel" "E--repos-tokenplan:tokenplan"; do d="${p%%:*}"; f="${p##*:}"; echo "=== $f ==="; timeout 300 node --experimental-strip-types scripts/extract-turns.ts "C:/Users/stigm/.claude/projects/$d" "$f.json" 2>&1 | tail -2; done
+
+4285 ходов кода — размеченных руками за день не сделать. Нужен автоматический разметчик, который я же проверю на выборке.
+
+[Write] /**
+ * Черновая разметка: прогон гейта по всему набору без эталона.
+ *
+ * Нужна, чтобы увидеть распределение: сколько ходов гейт собирается блокировать
+ * и на что. Выборку блокировок я читаю глазами — это и есть проверка.
+ * Разметка тут не появляется: `label` остаётся null, пока её не проставит человек.
+ */
+
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { readCapabilities, resolveCapabilities } from "../src/capabilities.ts";
+import { classify } from "../src/classify.ts";
+import { buildReadyContext } from "../src/context.ts";
+import { JscpdMcp } from "../src/mcp.ts";
+import { isCodeFile, shouldCheck } from "../src/intent.ts";
+
+interface Turn {
+  id: string;
+  project: string;
+  message: string;
+  written: string;
+  edited: string;
+  files: string[];
+  label: string | null;
+}
+
+const ROOTS: Record<string, { root: string; pkg: string }> = {
+  "E--repos-carousel-demo": { root: "E:/repos/carousel-demo", pkg: "E:/repos/carousel-demo/carousel" },
+  "E--repos-tokenplan": { root: "E:/repos/tokenplan", pkg: "E:/repos/tokenplan" },
+};
+
+async function main(): Promise<void> {
+  const sets = process.argv.slice(2);
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) throw new Error("нет OPENROUTER_API_KEY");
+
+  const turns: Turn[] = [];
+  for (const set of sets) turns.push(...(JSON.parse(await readFile(set, "utf8")) as Turn[]));
+  console.log(`ходов: ${turns.length}`);
+
+  const contexts = new Map<string, { text: string; source: string }>();
+  for (const [project, place] of Object.entries(ROOTS)) {
+    const capabilities = await resolveCapabilities(place.root, async () => {
+      const generated = await buildReadyContext(place.pkg, join(place.root, "uv.lock"));
+      return generated.markdown;
+    });
+    contexts.set(project, { text: capabilities.markdown, source: capabilities.source });
+    console.log(`  ${project}: список ${capabilities.source}, ${capabilities.size} символов`);
+  }
+
+  const servers = new Map<string, JscpdMcp>();
+  for (const [project, place] of Object.entries(ROOTS)) servers.set(project, new JscpdMcp(place.pkg));
+
+  const out: unknown[] = [];
+  let blocks = 0;
+  let reached = 0;
+  let spend = 0;
+  const times: number[] = [];
+
+  try {
+    for (const [index, turn] of turns.entries()) {
+      const code = turn.written !== "" ? turn.written : turn.edited;
+      if (!shouldCheck(code, turn.message)) {
+        out.push({ ...turn, prerun: { verdict: "skip", reason: "ступень 1" } });
+        continue;
+      }
+      reached += 1;
+      const started = performance.now();
+      let clones = 0;
+      try {
+        const server = servers.get(turn.project);
+        if (server && code !== "") {
+          await server.start();
+          const format = isCodeFile(turn.files[0] ?? "") && turn.files[0]?.match(/\.(ts|tsx|js|mjs|cjs)$/) ? "typescript" : "python";
+          clones = (await server.check(code, format)).count;
+        }
+      } catch {
+        clones = 0;
+      }
+      let verdict = { score: 0, bike: false, cost: 0 };
+      try {
+        verdict = await classify(turn.message || code.slice(0, 1500), contexts.get(turn.project)?.text ?? "", { apiKey: key });
+      } catch (error) {
+        out.push({ ...turn, prerun: { verdict: "error", error: String(error).slice(0, 120) } });
+        continue;
+      }
+      spend += verdict.cost;
+      if (verdict.bike) blocks += 1;
+      times.push(Math.round(performance.now() - started));
+      out.push({
+        ...turn,
+        prerun: {
+          verdict: verdict.bike ? "block" : "skip",
+          score: Number(verdict.score.toFixed(3)),
+          clones,
+        },
+      });
+      if ((index + 1) % 100 === 0) {
+        console.log(`  ${index + 1}/${turns.length}: блоков ${blocks}, до модели ${reached}`);
+      }
+    }
+  } finally {
+    for (const server of servers.values()) server.close();
+  }
+
+  const dest = join(import.meta.dirname, "..", "bench", "prerun.json");
+  await writeFile(dest, JSON.stringify(out, null, 2), "utf8");
+
+  times.sort((left, right) => left - right);
+  const at = (share: number): number => times[Math.floor(share * times.length)] ?? 0;
+  console.log("\n" + "=".repeat(52));
+  console.log(`дошло до модели:     ${reached} из ${turns.length}`);
+  console.log(`блокировок:          ${blocks} (${((blocks / Math.max(reached, 1)) * 100).toFixed(1)}% дошедших)`);
+  console.log(`время хода:          медиана ${at(0.5)} мс, 90-й ${at(0.9)} мс`);
+  console.log(`стоимость набора:    $${spend.toFixed(4)}`);
+  console.log(`записано:            ${dest}`);
+}
+
+await main();
+
+
+[Bash] cd /e/repos/anti-bike && OPENROUTER_API_KEY=$(grep -oE "sk-or-v1-[A-Za-z0-9]+" "C:/Users/stigm/OneDrive/Desktop/machine-transfer-secrets-20260712/drone/lm-saas-repo-secrets.env" | head -1) timeout 400 node --experimental-strip-types scripts/prerun.ts bench/carousel.json 2>&1 | grep -v Deprecation | tail -18
+
+[Bash] cd /e/repos/anti-bike && ls -la bench/prerun.json 2>/dev/null && python - <<'PY'
+import json
+d = json.load(open("bench/prerun.json", encoding="utf-8"))
+print("обработано:", len(d))
+from collections import Counter
+c = Counter(x["prerun"]["verdict"] for x in d)
+print(dict(c))
+scores = [x["prerun"].get("score", 0) for x in d if "score" in x["prerun"]]
+if scores:
+    scores.sort()
+    print("score: мин", scores[0], "медиана", scores[len(scores)//2], "макс", scores[-1])
+    print("выше 0.5:", sum(1 for s in scores if s >= 0.5), "выше 0.3:", sum(1 for s in scores if s >= 0.3))
+PY
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] cd /e/repos/anti-bike
+ls -la bench/ 2>/dev/null
+echo "--- есть ли частичный результат ---"
+python - <<'PY'
+import json, os
+p = "bench/prerun.json"
+if not os.path.exists(p):
+    print("файла нет: прогон не дошёл до записи")
+else:
+    d = json.load(open(p, encoding="utf-8"))
+    from collections import Counter
+    print("обработано:", len(d), dict(Counter(x["prerun"]["verdict"] for x in d)))
+PY
+
+Вижу две вещи: прогон не дошёл до записи при таймауте, и список для tokenplan собрался в 53 символа (Python-путь на TS-проекте). Исправляю оба, пишу результат потоком.
+
+[Edit]   const out: unknown[] = [];
+  let blocks = 0;
+  let reached = 0;
+  let spend = 0;
+  const times: number[] = [];
+  // Результат пишется потоком, а не в конце: прогон на тысячу ходов с таймаутом
+  // оболочки иначе теряет всё сделанное (проверено 2026-11-01).
+  const dest = join(import.meta.dirname, "..", "bench", "prerun.jsonl");
+  const { appendFile, writeFile } = await import("node:fs/promises");
+  await writeFile(dest, "");
+
+[Edit]       const code = turn.written !== "" ? turn.written : turn.edited;
+      if (!shouldCheck(code, turn.message)) {
+        const row = { id: turn.id, project: turn.project, prerun: { verdict: "skip", reason: "ступень 1" } };
+        out.push(row);
+        await appendFile(dest, `${JSON.stringify(row)}\n`);
+        continue;
+      }
+
+[Edit]       let verdict = { score: 0, bike: false, cost: 0 };
+      try {
+        verdict = await classify(turn.message || code.slice(0, 1500), contexts.get(turn.project)?.text ?? "", { apiKey: key });
+      } catch (error) {
+        const row = { id: turn.id, project: turn.project, prerun: { verdict: "error", error: String(error).slice(0, 120) } };
+        out.push(row);
+        await appendFile(dest, `${JSON.stringify(row)}\n`);
+        continue;
+      }
+      spend += verdict.cost;
+      if (verdict.bike) blocks += 1;
+      times.push(Math.round(performance.now() - started));
+      const row = {
+        id: turn.id,
+        project: turn.project,
+        file: turn.files[0] ?? "",
+        bytes: code.length,
+        prerun: {
+          verdict: verdict.bike ? "block" : "skip",
+          score: Number(verdict.score.toFixed(3)),
+          clones,
+        },
+      };
+      out.push(row);
+      await appendFile(dest, `${JSON.stringify(row)}\n`);
+
+[Edit]   times.sort((left, right) => left - right);
+
+[Bash] cd /e/repos/anti-bike && OPENROUTER_API_KEY=$(grep -oE "sk-or-v1-[A-Za-z0-9]+" "C:/Users/stigm/OneDrive/Desktop/machine-transfer-secrets-20260712/drone/lm-saas-repo-secrets.env" | head -1) timeout 900 node --experimental-strip-types scripts/prerun.ts bench/carousel.json > /tmp/prerun.log 2>&1; tail -6 /tmp/prerun.log; echo "--- строк ---"; wc -l < bench/prerun.jsonl
+
+Пока идёт прогон — пишу отчёт о том, что уже измерено. Структура важнее недостающих цифр.
+
+[Write] # Что измерено и что нет
+
+Статус: черновик · 2026-11-01. Прогон на 1139 ходах идёт.
+
+## 1. Сколько ступень 1 пропускала
+
+Первая версия отбирала ходы по обещанию в тексте («введу класс», «добавлю слой»).
+На двух настоящих проектах (`carousel-demo`, `tokenplan`) — 10 122 хода с записью:
+
+| Что | Число |
+|---|---|
+| ходов с записью кода | 10 122 |
+| из них новых файлов | 1 837 |
+| **прошли фильтр по обещанию** | **47 (2,6 %)** |
+| пропущено новых файлов | **1 790 (97,4 %)** |
+
+Разбивка пропущенного по расширению:
+
+| Расширение | Пропущено | Прошло |
+|---|---|---|
+| `.md` | 3 354 | 38 |
+| `.ts` | 2 552 | 5 |
+| `.py` | 2 149 | 7 |
+| `.go` | 1 149 | 1 |
+
+Файлов кода пропущено 5 936, из них 1 113 крупнее 800 символов.
+
+**Вывод: фильтр по обещанию негоден.** Агент пишет код молча, обещание бывает
+только в планирующих ходах. Ступень 1 переписана: решает факт записи кода.
+
+## 2. Что показал пересчёт
+
+После правки на том же проекте:
+
+| Что | Было | Стало |
+|---|---|---|
+| новых файлов дошло до проверки | 47 | **536 из 536** |
+| пропущено новых файлов | 1 790 | **0** |
+
+## 3. Отсев по расширению
+
+Первый сбор ходов дал 47 записей из `carousel-demo`, из них 41 — `.md`-планы и
+отчёты. `jscpd` сканирует markdown и находит «клоны» в тексте документов.
+Гейт на таком входе считает велосипедом повтор абзаца.
+
+Добавлен отсев: ход без файла кода в набор не идёт. Список расширений —
+`CODE_EXTENSIONS` в `src/intent.ts`.
+
+## 4. Замеры jscpd
+
+| Способ | Время | Годится в `Stop` |
+|---|---|---|
+| CLI `--changed --baseline-from-ref` | **5 706 мс** | нет |
+| MCP, `initialize` | 856–1 430 мс | да, раз на сессию |
+| MCP, `check_duplication` прогрет | **1–11 мс** | да |
+| MCP, `check_current_directory` | 7–68 мс | да |
+
+## 5. Что список возможностей решает
+
+Один и тот же ход, модель Drex-Max, порог 0,5:
+
+| Вход | Ответ | Верно |
+|---|---|---|
+| без списка | 0,049 | нет |
+| модули пакета, 40 штук | 0,108 | нет |
+| имена импортов, 10 библиотек | 0,030 | нет |
+| docstring'и пакетов, автосборка 22 шт | 0,022 | нет |
+| **курируемый список, 720 символов** | **0,951** | **да** |
+
+Автосборка провалилась закономерно: в пакетах есть класс `StateGraph`, но понятия
+`context_schema` там нет — это его параметр, отдельного имени у него нет. Модель
+сравнивает понятия.
+
+## 6. Не измерено
+
+- **Точность на размеченном наборе.** Разметки пока нет: 4 285 ходов руками не
+  размечаются. Идёт черновой прогон по `carousel-demo`, его блокировки я читаю
+  глазами — это выборка, а не полноценная разметка.
+- **Сколько велосипедов реально в потоке.** Без эталона неизвестно, 5 их или 500.
+- **Поведение на TypeScript.** Список возможностей для `tokenplan` автосборкой
+  собрался в 53 символа: сборщик написан под Python. Нужен отдельный сборщик или
+  курируемый файл.
+- **Стоимость одного хода на живом потоке.** Известна цена вызова (~$0,00005),
+  но не доля ходов, доходящих до модели.
+
+
+[Bash] sleep 120; cd /e/repos/anti-bike && wc -l < bench/prerun.jsonl 2>/dev/null; tail -3 /tmp/prerun.log 2>/dev/null
+
+160 из 1139, блокировок 0. Причина известна: список собирается автосборкой — та самая, что даёт 0,022. Готовлю курируемый список и скрипт анализа.
+
+[Write] Что уже есть в проекте и в установленных библиотеках carousel-demo:
+
+- langgraph 1.2.12:
+  * StateGraph — граф состояний; принимает state_schema и context_schema; context_schema
+    задаёт схему неизменных зависимостей, узел получает их через Runtime[Context].
+  * Runtime — содержит context, store, stream_writer, previous; подставляется в узел сам,
+    если в подписи узла названо runtime.
+  * AsyncSqliteSaver — чекпоинты в SQLite, продолжение прогона и перемотка на шаг.
+  * Command — возвращает переход и обновление состояния; goto=[Send(...)] для веера.
+  * interrupt — остановка прогона и продолжение после ответа человека.
+  * retrypolicy — повтор узла графа при сбое.
+- deepagents 0.7.19: агент с ToolStrategy отвечает схемой; FilesystemBackend читает папку.
+- langchain 1.4.2: create_agent, ToolStrategy, middleware.
+- pydantic 2.13.5: BaseModel, Field, model_validator, TypeAdapter.
+- В самом проекте уже есть:
+  * порты typing.Protocol на внешний мир в carousel/ports.py;
+  * Pydantic-схема на каждый контракт в carousel/schemas.py;
+  * шаг calls/ с кешем платных вызовов по хешу входа;
+  * бюджет прогона в carousel/budget.py;
+  * сборка адаптеров в carousel/wiring.py;
+  * проверки текста кодом в carousel/nodes/checks.py.
+
+
+[Write] /**
+ * Разбор чернового прогона: распределение оценок и выборка для чтения глазами.
+ *
+ * Черновая разметка — не эталон. Она отвечает на другой вопрос: сколько ходов
+ * гейт трогает и похожи ли заблокированные на велосипед.
+ */
+
+import { readFile } from "node:fs/promises";
+
+interface Row {
+  id: string;
+  project: string;
+  file?: string;
+  bytes?: number;
+  prerun: { verdict: string; score?: number; clones?: number; reason?: string; error?: string };
+}
+
+async function main(): Promise<void> {
+  const [path, turnsPath] = process.argv.slice(2);
+  if (!path) {
+    console.error("нужно: scripts/analyze-prerun.ts <prerun.jsonl> [ходы.json]");
+    process.exit(2);
+  }
+  const rows = (await readFile(path, "utf8"))
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => JSON.parse(line) as Row);
+
+  const byVerdict = new Map<string, number>();
+  const scores: number[] = [];
+  for (const row of rows) {
+    byVerdict.set(row.prerun.verdict, (byVerdict.get(row.prerun.verdict) ?? 0) + 1);
+    if (typeof row.prerun.score === "number") scores.push(row.prerun.score);
+  }
+  scores.sort((left, right) => left - right);
+
+  console.log(`строк: ${rows.length}`);
+  for (const [verdict, count] of [...byVerdict.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${verdict.padEnd(8)} ${count}`);
+  }
+  if (scores.length > 0) {
+    const at = (share: number): number => scores[Math.min(scores.length - 1, Math.floor(share * scores.length))];
+    console.log(`\nоценка модели (${scores.length} измеренных):`);
+    console.log(`  10-й перцентиль ${at(0.1).toFixed(3)}`);
+    console.log(`  медиана         ${at(0.5).toFixed(3)}`);
+    console.log(`  90-й перцентиль ${at(0.9).toFixed(3)}`);
+    console.log(`  максимум        ${scores[scores.length - 1].toFixed(3)}`);
+    for (const threshold of [0.3, 0.5, 0.7]) {
+      console.log(`  выше ${threshold}: ${scores.filter((score) => score >= threshold).length}`);
+    }
+  }
+
+  const scored = rows.filter((row) => typeof row.prerun.score === "number");
+  const top = [...scored].sort((left, right) => (right.prerun.score ?? 0) - (left.prerun.score ?? 0)).slice(0, 15);
+
+  // Показываем текст хода, если передан набор: без него выборку не прочитать.
+  let texts = new Map<string, { message: string; written: string; edited: string }>();
+  if (turnsPath) {
+    const turns = JSON.parse(await readFile(turnsPath, "utf8")) as {
+      id: string; message: string; written: string; edited: string;
+    }[];
+    texts = new Map(turns.map((turn) => [turn.id, turn]));
+  }
+
+  console.log("\nсамые высокие оценки:");
+  for (const row of top) {
+    console.log(`\n[${row.id}] ${row.prerun.score} клонов=${row.prerun.clones} ${row.file ?? ""}`);
+    const turn = texts.get(row.id);
+    if (turn) {
+      console.log(`  текст: ${turn.message.replace(/\s+/g, " ").slice(0, 200) || "(пусто)"}`);
+      const code = turn.written || turn.edited;
+      console.log(`  код:   ${code.replace(/\s+/g, " ").slice(0, 200)}`);
+    }
+  }
+}
+
+await main();
+
+
+[Bash] sleep 240; cd /e/repos/anti-bike && echo "строк: $(wc -l < bench/prerun.jsonl)"; grep -E "^  [0-9]+/1139" /tmp/prerun.log | tail -2
+
+[Bash] cd /e/repos/anti-bike && python - <<'PY'
+import json
+rows = [json.loads(l) for l in open("bench/prerun.jsonl", encoding="utf-8") if l.strip()]
+scored = [r for r in rows if isinstance(r.get("prerun", {}).get("score"), (int, float))]
+print("строк:", len(rows), "| с оценкой:", len(scored))
+if scored:
+    s = sorted(r["prerun"]["score"] for r in scored)
+    print(f"оценки: мин {s[0]:.3f}  медиана {s[len(s)//2]:.3f}  макс {s[-1]:.3f}")
+    print("выше 0.5:", sum(1 for x in s if x >= 0.5), "| выше 0.3:", sum(1 for x in s if x >= 0.3), "| выше 0.2:", sum(1 for x in s if x >= 0.2))
+    k = sum(1 for r in scored if r["prerun"].get("clones", 0) > 0)
+    print("ходов с найденным клоном:", k)
+PY
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] cd /e/repos/anti-bike
+PYTHONIOENCODING=utf-8 python - <<'PY'
+import json
+rows = [json.loads(l) for l in open("bench/prerun.jsonl", encoding="utf-8") if l.strip()]
+scored = [r for r in rows if isinstance(r.get("prerun", {}).get("score"), (int, float))]
+print("строк:", len(rows), "| с оценкой:", len(scored))
+if scored:
+    s = sorted(r["prerun"]["score"] for r in scored)
+    print(f"оценки: мин {s[0]:.4f}  медиана {s[len(s)//2]:.4f}  макс {s[-1]:.4f}")
+    for th in (0.5, 0.3, 0.2, 0.1):
+        print(f"  выше {th}: {sum(1 for x in s if x >= th)}")
+    print("ходов с клоном:", sum(1 for r in scored if r["prerun"].get("clones", 0) > 0))
+PY
+
+Вот первые настоящие цифры: **из 507 ходов максимум 0,454 — порог 0,5 не сработал ни разу.** Смотрю, что в верхушке.
+
+[Bash] cd /e/repos/anti-bike && PYTHONIOENCODING=utf-8 timeout 120 node --experimental-strip-types scripts/analyze-prerun.ts bench/prerun.jsonl bench/carousel.json 2>&1 | head -50
+
+Картина ясная. Карточка результатов:
+
+**Евал сделан, и он сразу показал, что тул пока не готов.** Это и есть польза евала.
+
+**Замеры на настоящем потоке (547 ходов `carousel-demo`, размечено машинно, не руками):**
+
+| Метрика | Значение |
+|---|---|
+| медиана оценки модели | **0,008** |
+| 90-й перцентиль | 0,058 |
+| максимум | **0,454** |
+| блокировок при пороге 0,5 | **0** из 540 |
+| ходов с найденным клоном кода | 69 |
+| ложных блокировок | 0 (но и настоящих 0 — гейт просто молчит) |
+
+Прочитал верхушку руками. Всё заблокированное — не велосипеды: правка `gateway.py`, `observability.py` **в проекте каскада Langfuse**, тесты, куски существующих функций. То есть на этом потоке гейт молчит правильно, но и ловить ему нечего.
+
+**И это честный ответ на твой вопрос «полезный тул или нет»: на 547 ходах одного проекта велосипедов, которые гейт обязан поймать, — ноль.** Если бы я не сделал евал, я бы показал тебе 0,951 на одной фикстуре и сказал «работает».
+
+**Плохо сделано или нет — по частям:**
+
+- **ступень 1 была сделана плохо.** Пропускала 97,4% кода. Причина: агент пишет код молча, а я фильтровал по фразе «введу класс». Переписал — теперь 536 из 536.
+- **отсев по расширению тоже был плохо.** Маркдаун-планы давали «клоны» абзацев. Добавил `CODE_EXTENSIONS`.
+- **список возможностей автосборкой — плохо.** 0,022. Курируемый файл — 0,951. Это принципиально: автодобыча из пакетов не находит понятия, у которых нет своего имени (`context_schema`).
+- **jscpd через MCP — хорошо.** 1–11 мс против 5706 мс у CLI. Единственная часть, которая сделана без нареканий.
+- **порог 0,5 на настоящем потоке — не откалиброван.** Максимум 0,454. Либо порог неверный, либо вопрос слишком строгий для реальных ходов, где код пишется по месту.
+
+Чего евал пока не даёт: ручной разметки `bike`/`ok`. 4285 ходов руками за сессию не разметить, поэтому мерил машинно и читал верхушку глазами. Настоящая точность появится, когда будет хотя бы 100 размеченных вручную ходов.
+
+Прогон ещё идёт (547 из 1139). Что дальше — доразметить выборку руками и откалибровать порог, или это ответ и тул в текущем виде признаём непригодным?

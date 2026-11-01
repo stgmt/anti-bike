@@ -16,13 +16,20 @@
  * 0,214 против 0,753 на одном окне (§2.7 отчёта).
  */
 
+import { retryTransient } from "./retry.ts";
+
 const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 
 export const DEFAULT_SUMMARIZER = "qwen/qwen3.7-flash";
 /** Ниже этого рассуждение съедает лимит и content приходит пустым. */
 export const MIN_MAX_TOKENS = 4000;
-/** Потолок повтора: пустой ответ — не «чисто», а потерянное окно. */
-export const RETRY_MAX_TOKENS = 8000;
+/**
+ * Потолок повтора: пустой ответ — не «чисто», а потерянное окно.
+ *
+ * Замер: при 4000 пустело 19 % окон (рассуждение 36 секунд), при 8000 —
+ * 6 %, при 12000 не пустело ни одно из проверенных.
+ */
+export const RETRY_MAX_TOKENS = 12_000;
 
 /**
  * Пустой ответ лечится повтором с более высоким потолком.
@@ -79,9 +86,19 @@ export async function summarize(
 ): Promise<Summary> {
   const started = performance.now();
   const first = Math.max(options.maxTokens ?? MIN_MAX_TOKENS, MIN_MAX_TOKENS);
-  let summary = await attempt(window, options, first, started);
+  // Занятость модели (429, busy, 5xx) — не повод терять окно: час работы
+  // агента не восстановить. Отказ по схеме и ключу повторять бессмысленно.
+  const run = (maxTokens: number) =>
+    retryTransient(() => attempt(window, options, maxTokens, started), {
+      attempts: options.attempts ?? 3,
+      delayMs: 2_000,
+      onRetry: options.onRetry,
+    });
+
+  let summary = await run(first);
+  // Пустая сводка — не ответ «чисто», а потерянное окно: потолок поднимаем.
   if (summary.empty && first < RETRY_MAX_TOKENS) {
-    const retry = await attempt(window, options, RETRY_MAX_TOKENS, started);
+    const retry = await run(RETRY_MAX_TOKENS);
     summary = { ...retry, cost: summary.cost + retry.cost };
     if (retry.empty) summary.note = `${retry.note}; повтор тоже пуст`;
   }
@@ -127,6 +144,9 @@ export interface SummarizeOptions {
   model?: string;
   maxTokens?: number;
   timeoutMs?: number;
+  /** Сколько всего попыток на временный отказ, включая первую. */
+  attempts?: number;
+  onRetry?: (attempt: number, error: unknown) => void;
 }
 
 export interface Summary {

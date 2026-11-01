@@ -1,0 +1,370 @@
+[Skill] 
+
+[Bash] find E:/tmp/pub/merge/src -iname '*memberRuntimeSummary*'; rg -n 'resolveMemberRuntimeSummary' E:/tmp/pub/merge/test E:/tmp/pub/merge/src --glob '*test*' | head -45; rg -n 'memberRuntimeSummary|launchParamsByTeam' E:/tmp/pub/merge/src/renderer/store/slices/teamSlice.ts | head -30; git -C E:/tmp/pub/merge status --short
+
+[Bash] sed -n '190,420p' E:/tmp/pub/merge/test/renderer/utils/memberRuntimeSummary.test.ts; sed -n '1,75p' E:/tmp/pub/merge/test/renderer/utils/memberRuntimeSummary.test.ts; sed -n '100,195p' E:/tmp/pub/merge/src/renderer/utils/memberRuntimeSummary.ts; rg -n 'effort_unverified|unverified-catalog-missing' E:/tmp/pub/merge/src/renderer E:/tmp/pub/merge/src/features/anthropic-runtime-profile | head -50
+
+[Bash] python - <<'PY'
+p='E:/tmp/pub/merge/src/renderer/utils/memberRuntimeSummary.ts'
+s=open(p,encoding='utf8').read();old="  const leadLaunchParams = isLeadMember(member) ? launchParams : undefined;\n";new="  const leadLaunchParams =\n    isLeadMember(member) && (isTeamAlive === undefined || isMemberLaunchPending(spawnEntry))\n      ? launchParams\n      : undefined;\n";assert old in s;s=s.replace(old,new);open(p,'w',encoding='utf8',newline='').write(s)
+p='E:/tmp/pub/merge/test/renderer/utils/memberRuntimeSummary.test.ts';s=open(p,encoding='utf8').read();needle="  it('uses lead launch params instead of stale persisted lead runtime fields', () => {";assert needle in s;tests="""  it.each([false, true])('shows the saved lead model rather than stale UI launch params when team alive is %s', (alive) => {
+    const member = createMember({
+      name: 'team-lead', agentType: 'team-lead', providerId: 'anthropic',
+      model: 'gpt-6.1-terra', effort: 'high',
+    });
+    expect(resolveMemberRuntimeSummary(member, {
+      providerId: 'anthropic', model: 'claude-sonnet-5-5', effort: 'high',
+    }, undefined, undefined, alive)).toBe('Anthropic · gpt-6.1-terra · High');
+  });
+
+""";s=s.replace(needle,tests+needle);open(p,'w',encoding='utf8',newline='').write(s)
+PY
+cd E:/tmp/pub/merge && node node_modules/vitest/vitest.mjs run test/renderer/utils/memberRuntimeSummary.test.ts --maxWorkers=1
+
+[Bash] rg -n 'effort_unverified|Selected model.*unavailable|blockingMessages|providerPreflight|compatibility' E:/tmp/pub/merge/src/renderer/components/team/dialogs/LaunchTeamDialog.tsx | head -75; rg -n 'effort_unverified|recordAnthropicEffortOutcome|probeAnthropicEffort' E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningProviderPreflight.ts; sed -n '180,270p' E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningProviderPreflight.ts; rg -n 'recordAnthropicEffortOutcome|checkProviderModelCompatibility|modelVerificationMode' E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningProviderPreflight.ts
+
+[Bash] cd E:/tmp/pub/merge && node node_modules/prettier/bin/prettier.cjs --write src/renderer/utils/memberRuntimeSummary.ts test/renderer/utils/memberRuntimeSummary.test.ts && node --max-old-space-size=8192 node_modules/electron-vite/bin/electron-vite.js build
+
+[Bash] rg -n 'preflight|prepareTeam|prepare.*Provision|prepare.*Launch|modelVerificationMode|issueReasons' E:/tmp/pub/merge/src/renderer/components/team/dialogs/LaunchTeamDialog.tsx | head -100; rg -n 'preflight|prepareTeam|modelVerificationMode' E:/tmp/pub/merge/src/renderer/components/team/dialogs -g '*.ts*' | head -80; sed -n '330,450p' E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningProviderPreflight.ts
+
+[Bash] sed -n '2110,2145p' E:/tmp/pub/merge/src/renderer/components/team/dialogs/LaunchTeamDialog.tsx; sed -n '1550,1605p' E:/tmp/pub/merge/src/renderer/components/team/dialogs/LaunchTeamDialog.tsx; rg -n 'VerifySelectedProviderModelsPorts|verifySelectedProviderModelsForProvisioning\(' E:/tmp/pub/merge/src/main/services/team/provisioning | head -25; rg -n 'probeCodexChatGptModelSupport' E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningPrepare* E:/tmp/pub/merge/src/main/services/team/provisioning/*Factory* | head -40
+
+[Bash] sed -n '495,545p' E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningPrepareCoordinator.ts; sed -n '1,75p' E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningPrepareCoordinator.ts; sed -n '130,235p' E:/tmp/pub/merge/src/main/services/team/provisioning/__tests__/TeamProvisioningProviderPreflight.test.ts; sed -n '1,100p' E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningCodexChatGptModelGate.ts
+
+[Bash] python - <<'PY'
+p='E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningLaunchIdentityBoundaryFactory.ts';s=open(p,encoding='utf8').read();start=s.index('    probeAnthropicEffort: async (');end=s.index('    probeCodexChatGptModelSupport:',start);old=s[start:end];prefix='    probeAnthropicEffort: async '; assert old.startswith(prefix);body=old[len('    probeAnthropicEffort: '):].rstrip(); assert body.endswith(',');body=body[:-1];newfile="""import type { LaunchIdentityResolutionPorts } from './TeamProvisioningLaunchIdentity';
+import type { ReadRuntimeProviderLaunchFactsPorts } from './TeamProvisioningLaunchIdentity';
+
+export function createAnthropicEffortProbe(execCli: ReadRuntimeProviderLaunchFactsPorts['execCli']): NonNullable<LaunchIdentityResolutionPorts['probeAnthropicEffort']> {
+  return """+body.replace('deps.execCli(', 'execCli(')+";\n}\n";open('E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningAnthropicEffortProbe.ts','w',encoding='utf8',newline='').write(newfile);s=s[:start]+"    probeAnthropicEffort: createAnthropicEffortProbe(deps.execCli),\n"+s[end:];s="import { createAnthropicEffortProbe } from './TeamProvisioningAnthropicEffortProbe';\n"+s;open(p,'w',encoding='utf8',newline='').write(s)
+p='E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningPrepareCoordinator.ts';s=open(p,encoding='utf8').read();s=s.replace("import { createCodexChatGptModelSupportProbe } from './TeamProvisioningCodexChatGptModelGate';","import { createAnthropicEffortProbe } from './TeamProvisioningAnthropicEffortProbe';\nimport { createCodexChatGptModelSupportProbe } from './TeamProvisioningCodexChatGptModelGate';");s=s.replace('        appendPreflightDebugLog,\n        probeCodexChatGptModelSupport:',"        appendPreflightDebugLog,\n        probeAnthropicEffort: createAnthropicEffortProbe((binaryPath, args, options) =>\n          this.ports.execCli(binaryPath, args, options)\n        ),\n        probeCodexChatGptModelSupport:");open(p,'w',encoding='utf8',newline='').write(s)
+p='E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningProviderPreflight.ts';s=open(p,encoding='utf8').read();s=s.replace('  probeCodexChatGptModelSupport?: CodexChatGptModelSupportProbe;','  probeAnthropicEffort?: (params: { claudePath: string; cwd: string; env: NodeJS.ProcessEnv; providerArgs?: string[]; model: string; effort: EffortLevel }) => Promise<boolean>;\n  probeCodexChatGptModelSupport?: CodexChatGptModelSupportProbe;');s=s.replace('  const recordAnthropicEffortOutcome = (requestedModelId: string, effort: EffortLevel): boolean => {','  const effortProbes = new Map<string, Promise<boolean>>();\n  const recordAnthropicEffortOutcome = async (requestedModelId: string, effort: EffortLevel): Promise<boolean> => {');needle="    const reason = formatAnthropicEffortSupportFailure({\n";insert="""    if (effortSupport.kind === 'unverified-catalog-missing' && selection.resolvedLaunchModel && ports.probeAnthropicEffort) {
+      const model = selection.resolvedLaunchModel;
+      const key = JSON.stringify([model, effort]);
+      let result = effortProbes.get(key);
+      if (!result) {
+        result = ports.probeAnthropicEffort({ claudePath, cwd, env, providerArgs, model, effort }).catch(() => false);
+        effortProbes.set(key, result);
+      }
+      if (await result) return true;
+    }
+
+""";assert needle in s;s=s.replace(needle,insert+needle,1);s=s.replace('if (check.effort && !recordAnthropicEffortOutcome(label, check.effort)) {','if (check.effort && !(await recordAnthropicEffortOutcome(label, check.effort))) {');open(p,'w',encoding='utf8',newline='').write(s)
+PY
+
+[Bash] sed -n '1,65p' E:/tmp/pub/merge/src/main/services/team/provisioning/__tests__/TeamProvisioningProviderPreflight.test.ts; rg -n 'Anthropic.*effort|effort_unverified|unverified' E:/tmp/pub/merge/src/main/services/team/provisioning/__tests__/TeamProvisioningProviderPreflight.test.ts; cd E:/tmp/pub/merge && node node_modules/prettier/bin/prettier.cjs --write src/main/services/team/provisioning/TeamProvisioningAnthropicEffortProbe.ts src/main/services/team/provisioning/TeamProvisioningLaunchIdentityBoundaryFactory.ts src/main/services/team/provisioning/TeamProvisioningPrepareCoordinator.ts src/main/services/team/provisioning/TeamProvisioningProviderPreflight.ts && node node_modules/vitest/vitest.mjs run src/main/services/team/provisioning/__tests__/TeamProvisioningProviderPreflight.test.ts src/main/services/team/provisioning/__tests__/TeamProvisioningLaunchIdentityBoundaryFactory.test.ts test/renderer/utils/memberRuntimeSummary.test.ts --maxWorkers=1
+
+[Bash] cat >> E:/tmp/pub/merge/src/main/services/team/provisioning/__tests__/TeamProvisioningProviderPreflight.test.ts <<'EOF'
+
+describe('Anthropic custom model effort verification', () => {
+  it.each([true, false])('uses execution evidence in UI preflight (success: %s)', async (verified) => {
+    // Risk: the CLI probe is simulated; actual model execution is tested separately.
+    const probeAnthropicEffort = vi.fn().mockResolvedValue(verified);
+    const result = await verifySelectedProviderModelsForProvisioning({
+      claudePath: '/fake/claude', cwd: '/repo', providerId: 'anthropic',
+      modelIds: ['custom-model'], modelChecks: [{ modelId: 'custom-model', effort: 'high' }],
+      limitContext: false,
+      ports: {
+        buildProvisioningEnv: vi.fn().mockResolvedValue({ env: {} }),
+        readRuntimeProviderLaunchFacts: vi.fn().mockResolvedValue(buildRuntimeFacts({
+          defaultModel: null, modelIds: new Set(), modelListParsed: false,
+        })),
+        appendPreflightDebugLog: () => undefined,
+        probeAnthropicEffort,
+      },
+    });
+    expect(probeAnthropicEffort).toHaveBeenCalledOnce();
+    expect(result.blockingMessages.length).toBe(verified ? 0 : 1);
+    if (!verified) expect(result.issues?.[0]?.code).toBe('effort_unverified');
+  });
+});
+EOF
+cd E:/tmp/pub/merge && node node_modules/prettier/bin/prettier.cjs --write src/main/services/team/provisioning/__tests__/TeamProvisioningProviderPreflight.test.ts && node node_modules/vitest/vitest.mjs run src/main/services/team/provisioning/__tests__/TeamProvisioningProviderPreflight.test.ts --maxWorkers=1 && node node_modules/@typescript/native/bin/tsc --noEmit
+
+[Bash] python - <<'PY'
+p='E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningAnthropicEffortProbe.ts';s=open(p,encoding='utf8').read();print(s[:550])
+PY
+
+[Bash] python - <<'PY'
+p='E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningAnthropicEffortProbe.ts';s=open(p,encoding='utf8').read().replace("import type { ReadRuntimeProviderLaunchFactsPorts } from './TeamProvisioningLaunchIdentity';\n",'').replace("  execCli: ReadRuntimeProviderLaunchFactsPorts['execCli']","  execCli: (path: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; timeout: number }) => Promise<{ stdout: string }>");open(p,'w',encoding='utf8',newline='').write(s)
+PY
+cd E:/tmp/pub/merge && node node_modules/prettier/bin/prettier.cjs --write src/main/services/team/provisioning/TeamProvisioningAnthropicEffortProbe.ts && node node_modules/@typescript/native/bin/tsc --noEmit && node --max-old-space-size=8192 node_modules/electron-vite/bin/electron-vite.js build
+
+[mcp__Windows-MCP__Snapshot] 
+
+[Bash] powershell.exe -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object {$_.Name -in @("AgentTeamsAI.exe","electron.exe")} | Select-Object ProcessId,Name,ExecutablePath | Format-Table -AutoSize'
+
+[Bash] rg -n 'TeamProvisioningPrepareCoordinator|sources.*size|TeamProvisioningProviderPreflight' E:/tmp/pub/merge/scripts/ci/source-file-size-baseline.json | head; git -C E:/tmp/pub/merge diff --stat
+
+[Bash] rg -n 'getAnthropicEffort|effortSupport|could not be verified|unverified-catalog-missing' E:/tmp/pub/merge/src/renderer/components/team/dialogs E:/tmp/pub/merge/src/renderer/utils | head -70; rg -n 'getAnthropicEffort|resolveAnthropicEffortSupport' E:/tmp/pub/merge/src | head -50
+
+[Bash] sed -n '65,135p' E:/tmp/pub/merge/src/renderer/utils/teamEffortOptions.ts; sed -n '250,310p' E:/tmp/pub/merge/src/features/anthropic-runtime-profile/core/domain/resolveAnthropicRuntimeProfile.ts; rg -n 'getTeamEffortOptions|selectedEffort.*supported|effortReset' E:/tmp/pub/merge/src/renderer/components/team/dialogs/LaunchTeamDialog.tsx | head -30
+
+[Bash] rg -n 'getTeamEffortOptions|options.*selected|onChange\(' E:/tmp/pub/merge/src/renderer/components -g '*EffortLevelSelector*'; rg -n 'unverified|catalog.*missing|custom' E:/tmp/pub/merge/test/renderer/utils/teamEffortOptions.test.ts E:/tmp/pub/merge/src/renderer/utils/teamEffortOptions.test.ts 2>/dev/null | head -60; ls E:/tmp/pub/merge/node_modules/electron/dist/electron.exe
+
+[Bash] rg -n 'EffortLevelSelector' E:/tmp/pub/merge/src/renderer | head -20; find E:/tmp/pub/merge -iname '*EffortOptions*test*' -o -iname '*EffortLevelSelector*' | head -30
+
+[Bash] cat E:/tmp/pub/merge/src/renderer/components/team/dialogs/EffortLevelSelector.tsx | head -120; rg -n 'unknown|custom|missing|unverified' E:/tmp/pub/merge/src/renderer/utils/__tests__/teamEffortOptions.test.ts | head -30; sed -n '100,160p' E:/tmp/pub/merge/src/features/anthropic-runtime-profile/core/domain/resolveAnthropicRuntimeProfile.ts
+
+[Bash] sed -n '340,385p' E:/tmp/pub/merge/src/renderer/utils/__tests__/teamEffortOptions.test.ts; sed -n '140,245p' E:/tmp/pub/merge/src/renderer/utils/teamEffortOptions.ts; sed -n '90,180p' E:/tmp/pub/merge/src/renderer/components/team/dialogs/EffortLevelSelector.test.tsx
+
+[Bash] sed -n '240,275p' E:/tmp/pub/merge/src/renderer/utils/teamEffortOptions.ts; cat E:/tmp/pub/merge/src/renderer/utils/teamEffortOptions.ts | head -65; sed -n '360,405p' E:/tmp/pub/merge/src/renderer/utils/__tests__/teamEffortOptions.test.ts
+
+[Bash] python - <<'PY'
+p='E:/tmp/pub/merge/src/renderer/utils/teamEffortOptions.ts';s=open(p,encoding='utf8').read();old="""      resolveAnthropicEffortSupport({
+        selection: params.selection,
+        effort,
+        runtimeCapabilities: params.providerStatus?.runtimeCapabilities,
+      }).kind === 'supported'
+""";new="""      ['supported', 'unverified-catalog-missing'].includes(
+        resolveAnthropicEffortSupport({
+          selection: params.selection,
+          effort,
+          runtimeCapabilities: params.providerStatus?.runtimeCapabilities,
+        }).kind
+      )
+""";assert old in s;s=s.replace(old,new);s=s.replace('      helperText: defaultHelperText,\n      unavailableText: null,\n      canValidateValue: hasExactCatalogTruth,','      helperText: hasExactCatalogTruth\n        ? defaultHelperText\n        : `${defaultHelperText} Model support will be verified before launch.`,\n      unavailableText: null,\n      canValidateValue: hasExactCatalogTruth,');open(p,'w',encoding='utf8',newline='').write(s)
+p='E:/tmp/pub/merge/src/renderer/utils/__tests__/teamEffortOptions.test.ts';s=open(p,encoding='utf8').read();s=s.replace("it('does not invent Anthropic effort options for unknown models without catalog truth', () => {","it('offers unverified Anthropic effort choices for execution verification', () => {");old="""    ).toEqual([{ value: '', label: 'Default' }]);
+  });
+
+  it('shows known Anthropic effort options when catalog lacks the exact selected model entry'""";new="""    ).toEqual([
+      { value: '', label: 'Default' },
+      { value: 'low', label: 'Low' },
+      { value: 'medium', label: 'Medium' },
+      { value: 'high', label: 'High' },
+      { value: 'max', label: 'Max' },
+    ]);
+  });
+
+  it('shows known Anthropic effort options when catalog lacks the exact selected model entry'""";assert old in s;s=s.replace(old,new);open(p,'w',encoding='utf8',newline='').write(s)
+PY
+cd E:/tmp/pub/merge && node node_modules/prettier/bin/prettier.cjs --write src/renderer/utils/teamEffortOptions.ts src/renderer/utils/__tests__/teamEffortOptions.test.ts && node node_modules/vitest/vitest.mjs run src/renderer/utils/__tests__/teamEffortOptions.test.ts src/renderer/components/team/dialogs/EffortLevelSelector.test.tsx --maxWorkers=1
+
+[Bash] cd E:/tmp/pub/merge && node node_modules/@typescript/native/bin/tsc --noEmit && node --max-old-space-size=8192 node_modules/electron-vite/bin/electron-vite.js build
+
+[ToolSearch] 
+
+[Bash] powershell.exe -NoProfile -Command 'Get-CimInstance Win32_Process | Where-Object {$_.CommandLine -match "tokenplan-ops" -and $_.Name -match "claude"} | Measure-Object | Select-Object -ExpandProperty Count'; git -C E:/tmp/pub/merge diff --check; git -C E:/tmp/pub/merge status --short | head -30
+
+[Bash] cat E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningAnthropicEffortProbe.ts; rg -n 'buildLaunchParamsFromRuntimeRequest|isTeamAlive' E:/tmp/pub/merge/test/renderer/utils/memberRuntimeSummary.test.ts | head; sed -n '1,130p' E:/tmp/pub/merge/src/renderer/components/team/dialogs/optionalProviderPreflight.ts
+
+[Bash] cd E:/tmp/pub/merge && node --max-old-space-size=8192 node_modules/eslint/bin/eslint.js src/main/services/team/provisioning/TeamProvisioningAnthropicEffortProbe.ts src/main/services/team/provisioning/TeamProvisioningProviderPreflight.ts src/main/services/team/provisioning/TeamProvisioningPrepareCoordinator.ts src/main/services/team/provisioning/TeamProvisioningLaunchIdentityBoundaryFactory.ts src/renderer/utils/teamEffortOptions.ts src/renderer/utils/memberRuntimeSummary.ts
+
+[Bash] cd E:/tmp/pub/merge && node node_modules/vitest/vitest.mjs run src/main/services/team/provisioning/__tests__/TeamProvisioningLaunchIdentity.test.ts src/main/services/team/provisioning/__tests__/TeamProvisioningLaunchIdentityBoundaryFactory.test.ts src/main/services/team/provisioning/__tests__/TeamProvisioningRuntimeLaunchSelection.test.ts src/main/services/team/provisioning/__tests__/TeamProvisioningProviderPreflight.test.ts src/renderer/utils/__tests__/teamEffortOptions.test.ts src/renderer/components/team/dialogs/EffortLevelSelector.test.tsx test/renderer/utils/memberRuntimeSummary.test.ts --maxWorkers=1
+
+[Bash] rg -n 'getTeamEffortOptions\(|canValidateValue|model issue' E:/tmp/pub/merge/src/renderer/components/team/dialogs/LaunchTeamDialog.tsx | head -30; sed -n '230,270p' E:/tmp/pub/merge/src/renderer/components/team/dialogs/TeamModelSelector.tsx; rg -n 'custom model|customModel|Custom model|Enter model' E:/tmp/pub/merge/src/renderer/components/team/dialogs/TeamModelSelector.tsx | head -35
+
+[Bash] sed -n '3350,3420p' E:/tmp/pub/merge/src/renderer/components/team/dialogs/TeamModelSelector.tsx; rg -n 'customModelId|placeholders.customModelId' E:/tmp/pub/merge/src/features/localization | head -15; rg -n 'showCustom|customModel' E:/tmp/pub/merge/src/renderer/components/team/dialogs/TeamModelSelector.tsx | tail -35
+
+[Bash] rg -n 'showAnthropicCompatibleCustomModelInput|anthropicCompatibleCustomModelValue' E:/tmp/pub/merge/src/renderer/components/team/dialogs/TeamModelSelector.tsx
+
+[Bash] sed -n '1800,1845p' E:/tmp/pub/merge/src/renderer/components/team/dialogs/TeamModelSelector.tsx; rg -n 'selectedModelMatchesOption|normalizedValue' E:/tmp/pub/merge/src/renderer/components/team/dialogs/TeamModelSelector.tsx | head -25
+
+[Bash] rg -n 'canUseCustomAnthropicCompatibleModel|normalizeExplicitTeamModelForUi' E:/tmp/pub/merge/src/renderer -g '*.ts*' | head -30; sed -n '1625,1740p' E:/tmp/pub/merge/src/renderer/components/team/dialogs/TeamModelSelector.tsx
+
+[Bash] sed -n '340,385p' E:/tmp/pub/merge/src/renderer/utils/teamModelAvailability.ts; sed -n '600,645p' E:/tmp/pub/merge/src/renderer/utils/teamModelAvailability.ts; sed -n '830,890p' E:/tmp/pub/merge/src/renderer/utils/teamModelAvailability.ts
+
+[Bash] tail -8 'C:/Users/stigm/AppData/Local/Temp/claude/E--repos-tokenplan/7eac2fd7-034b-4dc7-84d3-b1c91e3ce2fc/tasks/bhkxv6pcc.output'
+
+[Bash] sed -n '890,940p' E:/tmp/pub/merge/src/renderer/utils/teamModelAvailability.ts; rg -n 'normalizeTeamModelForUi\(' E:/tmp/pub/merge/src/renderer/components/team/dialogs/TeamModelSelector.tsx; rg -n 'function resolveTeamModelSelectorValue' E:/tmp/pub/merge/src/renderer/components/team/dialogs -g '*.ts*'
+
+[Bash] sed -n '930,980p' E:/tmp/pub/merge/src/renderer/utils/teamModelAvailability.ts; sed -n '185,225p' E:/tmp/pub/merge/src/renderer/components/team/dialogs/teamModelSelectorUi.ts; rg -n 'getTeamModelSelectionError\(' E:/tmp/pub/merge/src/renderer/components/team/dialogs | head -15; rg -n 'unavailable.*anthropic|unknown.*[Aa]nthropic|unsupported Anthropic' E:/tmp/pub/merge/src/renderer/utils/__tests__/teamModelAvailability.test.ts | head -45
+
+[Bash] find E:/tmp/pub/merge -name '*teamModelAvailability*test*' | head; rg -n 'normalizeTeamModelForUi|isTeamModelAvailableForUi' E:/tmp/pub/merge/test/renderer/utils -g '*test*' | head -30
+
+[Bash] sed -n '1188,1235p' E:/tmp/pub/merge/test/renderer/utils/teamModelAvailability.test.ts; rg -n 'mythos|unknown|gpt-.*anthropic|not available.*Anthropic|unsupported.*anthropic' E:/tmp/pub/merge/test/renderer/utils/teamModelAvailability.test.ts | tail -30; sed -n '120,180p' E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningProviderPreflight.ts
+
+[Bash] tail -4 'C:/Users/stigm/AppData/Local/Temp/claude/E--repos-tokenplan/7eac2fd7-034b-4dc7-84d3-b1c91e3ce2fc/tasks/bhkxv6pcc.output'
+
+[Bash] powershell.exe -NoProfile -Command '$env:CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH="C:\Program Files\AgentTeamsAI\resources\runtime\claude-multimodel.exe"; $env:CLAUDE_TERMINAL_PLATFORM_ROOT="C:\Program Files\AgentTeamsAI\resources\terminal-platform"; Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; Start-Process -FilePath "E:\tmp\pub\merge\node_modules\electron\dist\electron.exe" -WorkingDirectory "E:\tmp\pub\merge" -ArgumentList "."'
+
+[mcp__Windows-MCP__Snapshot] 
+
+[Bash] powershell.exe -NoProfile -Command '$p=Get-Process electron | Where-Object {$_.MainWindowTitle -eq "Agent Teams AI"}; if($p){$p.CloseMainWindow()}'
+
+[Bash] powershell.exe -NoProfile -Command '$env:CLAUDE_AGENT_TEAMS_ORCHESTRATOR_CLI_PATH="C:\Program Files\AgentTeamsAI\resources\runtime\claude-multimodel.exe"; $env:CLAUDE_TERMINAL_PLATFORM_ROOT="C:\Program Files\AgentTeamsAI\resources\terminal-platform"; Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; Start-Process -FilePath "E:\tmp\pub\merge\node_modules\electron\dist\electron.exe" -WorkingDirectory "E:\tmp\pub\merge" -ArgumentList ". --remote-debugging-port=9228"'
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[Bash] ls E:/tmp/pub/merge/node_modules | grep -E 'playwright|puppeteer'; find E:/tmp/pub/merge/node_modules/.pnpm -maxdepth 1 -name 'playwright*' | head
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[Bash] rg -n 'getTeamModelSelectionError|leadModelIssueText|launchGuard' E:/tmp/pub/merge/src/renderer/components/team/dialogs/LaunchTeamDialog.tsx | head -45; sed -n '2010,2090p' E:/tmp/pub/merge/src/renderer/components/team/dialogs/LaunchTeamDialog.tsx; cat E:/tmp/pub/merge/src/renderer/utils/providerReadiness.ts | head -160; rg -n 'isAnthropic.*Catalog|isTeamProviderModelCatalogFresh' E:/tmp/pub/merge/src/renderer/utils/teamModelAvailability.ts | head -30
+
+Вижу: интерфейс блокирует запуск ещё до проверки модели — отдельно по выбору модели и по статусу провайдера. Проверяю обе причины, не отключая проверку запуска.
+
+[Bash] sed -n '1,220p' E:/tmp/pub/merge/src/renderer/components/team/dialogs/providerPrepareDiagnostics.ts; rg -n 'createLaunchGuard|launchAuthorityBlockers' E:/tmp/pub/merge/src/renderer/components/team/dialogs -g '*.ts*' | head -30; rg -n 'statusCheckOutcome|hasAuthoritativeProviderStatusEvidence|isProviderModelCatalogExactReady' E:/tmp/pub/merge/src/shared/utils/providerStatusAuthority.ts
+
+[Bash] cat E:/tmp/pub/merge/src/renderer/components/team/dialogs/providerLaunchAuthority.ts | head -205; sed -n '475,510p' E:/tmp/pub/merge/src/renderer/components/team/dialogs/LaunchTeamDialog.tsx; sed -n '1,100p' E:/tmp/pub/merge/src/shared/utils/providerStatusAuthority.ts; cat E:/tmp/pub/merge/src/renderer/components/team/dialogs/providerPrepareRequestSignature.ts | head -50
+
+[Bash] rg -n 'verifySelectedProviderModels\(|blockingMessages|probeResult|auth' E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningPrepareCoordinator.ts | head -65; sed -n '255,420p' E:/tmp/pub/merge/src/main/services/team/provisioning/TeamProvisioningPrepareCoordinator.ts; sed -n '170,220p' E:/tmp/pub/merge/src/renderer/utils/teamModelAvailability.ts; sed -n '300,340p' E:/tmp/pub/merge/src/renderer/utils/teamModelAvailability.ts
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[Bash] python - <<'PY'
+p='E:/tmp/pub/merge/src/renderer/utils/teamModelAvailability.ts'
+s=open(p,encoding='utf-8').read();old='''    if (
+      !isSupportedAnthropicTeamModel(trimmed) &&
+      !getAnthropicCatalogModel(trimmed, providerStatus)
+    ) {
+      return false;
+    }
+''';new='''    if (
+      !isSupportedAnthropicTeamModel(trimmed) &&
+      !getAnthropicCatalogModel(trimmed, providerStatus)
+    ) {
+      // A missing or stale catalog cannot disprove a custom runtime model.
+      // Launch preflight must verify it against the actual runtime.
+      return (
+        !isTeamProviderModelCatalogFresh(providerId, providerStatus) &&
+        getModelAvailabilityMap(providerStatus).get(trimmed)?.status !== 'unavailable'
+      );
+    }
+''';assert s.count(old)==1;s=s.replace(old,new);open(p,'w',encoding='utf-8',newline='').write(s)
+p='E:/tmp/pub/merge/test/renderer/utils/teamModelAvailability.test.ts';s=open(p,encoding='utf-8').read();needle="  it('keeps known Anthropic full model ids selectable without runtime verification', () => {";assert s.count(needle)==1;s=s.replace(needle,"""  it('preserves an unlisted Anthropic runtime model when the catalog is missing', () => {
+    expect(normalizeTeamModelForUi('anthropic', 'custom-model')).toBe('custom-model');
+    expect(getTeamModelSelectionError('anthropic', 'custom-model')).toBeNull();
+  });
+
+"""+needle);open(p,'w',encoding='utf-8',newline='').write(s)
+PY
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[Bash] python - <<'PY'
+p='E:/tmp/pub/merge/src/renderer/utils/teamModelAvailability.ts';s=open(p,encoding='utf-8').read();new='''    if (
+      !isSupportedAnthropicTeamModel(trimmed) &&
+      !getAnthropicCatalogModel(trimmed, providerStatus)
+    ) {
+      // A missing or stale catalog cannot disprove a custom runtime model.
+      // Launch preflight must verify it against the actual runtime.
+      return (
+        !isTeamProviderModelCatalogFresh(providerId, providerStatus) &&
+        getModelAvailabilityMap(providerStatus).get(trimmed)?.status !== 'unavailable'
+      );
+    }
+''';old='''    if (
+      !isSupportedAnthropicTeamModel(trimmed) &&
+      !getAnthropicCatalogModel(trimmed, providerStatus)
+    ) {
+      return false;
+    }
+''';assert s.count(new)==1;s=s.replace(new,old);open(p,'w',encoding='utf-8',newline='').write(s)
+p='E:/tmp/pub/merge/test/renderer/utils/teamModelAvailability.test.ts';s=open(p,encoding='utf-8').read();part="""  it('preserves an unlisted Anthropic runtime model when the catalog is missing', () => {
+    expect(normalizeTeamModelForUi('anthropic', 'custom-model')).toBe('custom-model');
+    expect(getTeamModelSelectionError('anthropic', 'custom-model')).toBeNull();
+  });
+
+""";assert s.count(part)==1;s=s.replace(part,'');open(p,'w',encoding='utf-8',newline='').write(s)
+PY
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+API Error: Server error mid-response. The response above may be incomplete.
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+[mcp__plugin_context-mode_context-mode__ctx_execute] 
+
+**Запуск через интерфейс пока не исправлен: команда сейчас не запущена.** Проверил текущее состояние приложения: `isAlive: false`, `runId: null`. Мой прежний отчёт о запущенной команде относился к предыдущему запуску через API; после завершения того процесса команда остановилась.
+
+Что удалось установить и исправить в локальном кандидате:
+
+- Карточка лида показывала Sonnet из устаревшего состояния интерфейса. Исправил приоритет данных; в открытом кандидате карточка лида показывает `gpt-6.1-terra · High`.
+- Сохранённые настройки лида и десяти участников содержат `gpt-6.1-terra` и `high`. В предыдущем запуске ответы всех 11 действительно приходили от Terra, но это **не подтверждает текущий запуск**.
+- Добавил проверку неизвестной комбинации модели и effort реальным вызовом CLI перед запуском, а также её тесты. Сфокусированные тесты и сборка проходили; тесты с имитацией процесса не заменяют проверку запуска команды.
+
+Остаются две блокировки, которые видны на твоём скриншоте: интерфейс считает Terra недоступной моделью и не принимает статус провайдера как подтверждённый. Нашёл и дополнительную причину путаницы: отдельная диагностика запускает модель по умолчанию, а не выбранную Terra; она получила ответ `Your organization does not have access to Claude`. При этом отдельная проверка именно Terra ранее выполнялась успешно. Подменять отказ отключением проверки нельзя — нужно связать проверку с выбранной моделью и текущими параметрами запуска.
+
+**Кандидат не установлен и не опубликован.** Проверка нажатием `Launch team` и подтверждение работающих 11 участников ещё не выполнены.

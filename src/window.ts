@@ -130,7 +130,10 @@ export function readRecord(record: TranscriptRecord): Turn[] {
         old_string?: string;
         new_string?: string;
       };
-      const body = input.content ?? input.new_string ?? "";
+      // content приходит строкой не всегда: бывает массивом блоков в старых
+      // записях. Без этой проверки парсер падал на первом же таком файле.
+      const raw = input.content ?? input.new_string ?? "";
+      const body = typeof raw === "string" ? raw : JSON.stringify(raw);
       turns.push({
         author: "agent-wrote",
         text: `${input.file_path ?? "?"} (${body.length} знаков)\n${body.slice(0, 400)}`,
