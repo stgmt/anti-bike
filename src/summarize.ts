@@ -21,54 +21,17 @@ const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 export const DEFAULT_SUMMARIZER = "qwen/qwen3.7-flash";
 /** Ниже этого рассуждение съедает лимит и content приходит пустым. */
 export const MIN_MAX_TOKENS = 4000;
+/** Потолок повтора: пустой ответ — не «чисто», а потерянное окно. */
+export const RETRY_MAX_TOKENS = 8000;
 
 /**
- * Инструкция сводки.
+ * Пустой ответ лечится повтором с более высоким потолком.
  *
- * Задание, а не запрет: что сохранить, в каком виде. Запреты «не пересказывай»
- * здесь только уточняют, что считать работой агента, и обоснованы замером:
- * на входе без вызовов инструментов случай не находится.
+ * Замер: при 4000 часть окон даёт пустой content на 36 секундах — рассуждение
+ * не кончается раньше лимита. Повтор с 8000 закрывает такие окна. Если и он
+ * пуст, окно честно помечается «нет замера», а не «чисто».
  */
-export const SUMMARY_INSTRUCTION = `Ты сжимаешь протокол работы агента-программиста.
-Вход — только то, что агент сказал сам и чем он вызвал инструменты.
-
-Пиши по-русски, списком. Сохрани:
-- какие сущности, классы и слои агент предлагал СОЗДАТЬ, названия дословно;
-- какие файлы он записал и что в них нового;
-- что он предлагал владельцу и какими словами.
-
-Не пересказывай прочитанные файлы и вывод команд. Не оценивай качество работы.
-Если агент предлагал своё вместо готового механизма библиотеки или того, что в
-проекте уже написано, назови это прямо: «предложил своё вместо <библиотека.механизм>».`;
-
-export interface SummarizeOptions {
-  /** Ключ шлюза. Не печатать и не логировать. */
-  apiKey: string;
-  model?: string;
-  maxTokens?: number;
-  timeoutMs?: number;
-}
-
-export interface Summary {
-  text: string;
-  /** Сколько знаков было на входе и стало на выходе. */
-  inputChars: number;
-  outputChars: number;
-  ms: number;
-  cost: number;
-  /** Пустой ответ: это не «чисто». */
-  empty: boolean;
-  /** Чем кончилось, если пусто: длина, отказ, ошибка. */
-  note: string;
-}
-
-/** Сжимает окно работы агента в сводку. Пустой ответ помечается как пустой. */
-export async function summarize(
-  window: string,
-  options: SummarizeOptions,
-): Promise<Summary> {
-  const started = performance.now();
-  const maxTokens = Math.max(options.maxTokens ?? MIN_MAX_TOKENS, MIN_MAX_TOKENS);
+async function attempt(window: string, options: SummarizeOptions, maxTokens: number, started: number): Promise<Summary> {
   const response = await fetch(ENDPOINT, {
     method: "POST",
     headers: {
@@ -105,6 +68,77 @@ export async function summarize(
     ms,
     cost: payload.usage?.cost ?? 0,
     empty,
-    note: empty ? `пусто, finish=${finish}` : "",
+    note: empty ? `пусто, finish=${finish}, потолок ${maxTokens}` : "",
   };
 }
+
+/** Сжимает окно работы агента в сводку. Пустой ответ повторяется. */
+export async function summarize(
+  window: string,
+  options: SummarizeOptions,
+): Promise<Summary> {
+  const started = performance.now();
+  const first = Math.max(options.maxTokens ?? MIN_MAX_TOKENS, MIN_MAX_TOKENS);
+  let summary = await attempt(window, options, first, started);
+  if (summary.empty && first < RETRY_MAX_TOKENS) {
+    const retry = await attempt(window, options, RETRY_MAX_TOKENS, started);
+    summary = { ...retry, cost: summary.cost + retry.cost };
+    if (retry.empty) summary.note = `${retry.note}; повтор тоже пуст`;
+  }
+  return summary;
+}
+
+/**
+ * Инструкция сводки.
+ *
+ * Задание, а не запрет: что сохранить, в каком виде. Запреты «не пересказывай»
+ * здесь только уточняют, что считать работой агента, и обоснованы замером:
+ * на входе без вызовов инструментов случай не находится.
+ */
+export const SUMMARY_INSTRUCTION = `Ты сжимаешь протокол работы агента-программиста.
+Вход — только то, что агент сказал сам и чем он вызвал инструменты.
+
+Пиши по-русски. Три раздела, каждый начинается со своего заголовка.
+
+ВМЕСТО ГОТОВОГО — главное. Здесь только случаи, где агент предлагал сделать своё
+для задачи, которую уже закрывает установленная библиотека или код, который в
+проекте уже написан. В каждой строке три вещи:
+  что агент предлагал создать, названием дословно;
+  что вместо этого уже готово, названием дословно (библиотека.механизм или файл);
+  одной фразой, какую задачу закрывает готовое.
+Пример такой строки:
+  «RunContext — вместо langgraph.StateGraph(context_schema=…) и Runtime[Context],
+   которые передают неизменные зависимости в узлы без замыкания».
+Случая нет — так и напиши: «предложений вместо готового нет».
+
+СОЗДАЛ НОВОЕ — то, чего в проекте не было и аналога чему нет: новый модуль, шаг,
+формат, скрипт. Названия дословно и по одному разу.
+
+ЗАПИСАЛ — какие файлы изменил и что в них нового, одной строкой на файл.
+
+Последний раздел обязателен: «РЕШЕНИЕ ВЛАДЕЛЬЦА — не было / было, какими словами».
+
+Разделяй три вещи, они разные: создал новое, изменил существующее, предложил своё
+вместо готового. Оценивать качество работы не надо, надо назвать, что сделано.`;
+
+export interface SummarizeOptions {
+  /** Ключ шлюза. Не печатать и не логировать. */
+  apiKey: string;
+  model?: string;
+  maxTokens?: number;
+  timeoutMs?: number;
+}
+
+export interface Summary {
+  text: string;
+  /** Сколько знаков было на входе и стало на выходе. */
+  inputChars: number;
+  outputChars: number;
+  ms: number;
+  cost: number;
+  /** Пустой ответ: это не «чисто». */
+  empty: boolean;
+  /** Чем кончилось, если пусто: длина, отказ, ошибка. */
+  note: string;
+}
+
