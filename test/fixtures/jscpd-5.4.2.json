@@ -1,0 +1,71 @@
+{
+  "duplicates": [
+    {
+      "firstFile": {
+        "end": 22,
+        "endLoc": {
+          "column": 47,
+          "line": 22,
+          "position": 1216
+        },
+        "name": "nodes\\builds.py",
+        "start": 12,
+        "startLoc": {
+          "column": 58,
+          "line": 12,
+          "position": 816
+        }
+      },
+      "format": "python",
+      "fragment": "from collections.abc import Awaitable, Callable, Mapping, Sequence\nfrom decimal import Decimal\nfrom pathlib import Path\n\nfrom carousel.budget import allowance\nfrom carousel.cards import CardSpec\nfrom carousel.graph import SkippedStep\nfrom carousel.nodes.analyze import ANALYSIS_JSON, read_analysis\nfrom carousel.nodes.calls import CALLS_DIR\nfrom carousel.nodes.directions import GENERATION_JSON, direction_file\nfrom carousel.nodes.failures import BuildFailed, reason_of",
+      "isNew": false,
+      "kind": "renamed",
+      "lines": 11,
+      "secondFile": {
+        "end": 27,
+        "endLoc": {
+          "column": 52,
+          "line": 27,
+          "position": 1778
+        },
+        "name": "nodes\\page.py",
+        "start": 17,
+        "startLoc": {
+          "column": 28,
+          "line": 17,
+          "position": 1374
+        }
+      },
+      "tokens": 63
+    }
+  ],
+  "statistics": {
+    "detectionDate": "2026-11-01T11:53:09.483Z",
+    "formats": {
+      "python": {
+        "clones": 1,
+        "duplicatedLines": 11,
+        "duplicatedTokens": 63,
+        "lines": 21417,
+        "newClones": 0,
+        "newDuplicatedLines": 0,
+        "percentage": 0.05136106831022085,
+        "percentageTokens": 0.04531885048376075,
+        "sources": 92,
+        "tokens": 139015
+      }
+    },
+    "total": {
+      "clones": 1,
+      "duplicatedLines": 11,
+      "duplicatedTokens": 63,
+      "lines": 21417,
+      "newClones": 0,
+      "newDuplicatedLines": 0,
+      "percentage": 0.05136106831022085,
+      "percentageTokens": 0.04531885048376075,
+      "sources": 92,
+      "tokens": 139015
+    }
+  }
+}
