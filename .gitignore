@@ -2,3 +2,4 @@ node_modules/
 .jscpd/
 *.log
 reports/raw/
+.probe/
