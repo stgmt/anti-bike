@@ -5,3 +5,8 @@ reports/raw/
 .probe/
 
 .cache/
+
+# Выходы прогонов: отчёты сканера и ответы арбитра, не исходники.
+antibike-*.json
+scan.json
+scan.txt
