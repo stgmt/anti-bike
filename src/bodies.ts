@@ -27,21 +27,69 @@ const ASSIGNED = /(?:^|\n)[ \t]*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w
 const CLASS = /(?:^|\n)[ \t]*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)/g;
 
 /**
+ * Стрелочная функция с любым хвостом.
+ *
+ * `ASSIGNED` требует параметров в скобках, поэтому `const normalize = (text) => …`
+ * он находил, а `const f = x => …` и однострочные тела — нет. Замер на
+ * `hook-shim.mjs`: короткая стрелочная не попадала в сравнение вовсе.
+ */
+const ARROW = /(?:^|\n)[ \t]*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>/g;
+
+/**
+ * Метод класса и декораторы Pydantic: `    def coverage(self) -> …:`.
+ *
+ * `HEAD` требует начала строки без отступа, поэтому методы с отступом не
+ * находились. Замер: `coverage` из `rendered_video_critic.py` попадал в
+ * сравнение только потому, что разбирался текст СКРИПТА ПРАВКИ, а не метода.
+ */
+const METHOD = /(?:^|\n)[ \t]+(?:@[A-Za-z_.]+\s*\n\s*)*(?:async\s+)?def\s+([A-Za-z_$][\w$]*)\s*(\([^)]*\))?/g;
+
+/**
+ * Скрипт правки файла — не код приложения.
+ *
+ * Окна часто пишут питон, который правит другой файл строками. Тела функций
+ * в нём — куски чужого исходника в литералах, и сравнение с готовым даёт
+ * ложные пары. Замер 2026-11-02: так в находки попал `coverage` из
+ * `tmp/t15_d.py`, где он лежал строкой внутри вызова `edit(...)`.
+ */
+const PATCH_SCRIPT =
+  /(^|\n)\s*(?:from\s+edit_util\s+import|import\s+edit_util)|(^|\n)[ \t]*edit\(|(^|\n)[ \t]*(?:with\s+)?open\([^)\n]*["'][wa]|(^|\n)\s*(?:pathlib\.)?Path\([^)\n]*\)\.write_text/;
+
+/**
  * Вырезает тело по балансу фигурных скобок.
  *
  * Без баланса тело обрывается на первой же `}` внутри — у функций с вложенным
  * блоком остаётся четверть кода, и сравнение по смыслу врёт.
  */
 export function bodyAfter(text: string, from: number): string {
+  // Однострочная стрелочная функция: тело — остаток строки. Без этой ветки
+  // `const normalize = (t) => t.trim();` получало телом следующую функцию
+  // целиком: поиск `{` уходил за конец строки. Замер на `hook-shim.mjs`:
+  // из-за этого `normalize` сравнивался как `shimDigest`, и в находки попала
+  // пара, которой нет.
+  // Проверяем то, что стоит ПЕРЕД `from`: разбор уже съел `=>`, и в остатке
+  // строки его нет.
+  const lineEnd0 = text.indexOf("\n", from);
+  const before = text.slice(Math.max(0, from - 4), from);
+  const sameLine = text.slice(from, lineEnd0 < 0 ? text.length : lineEnd0);
+  if (before.includes("=>") && !sameLine.includes("{")) return sameLine.trim();
+
+  // Python — раньше скобочного баланса. Заголовок `def f(x):` кончается
+  // двоеточием, а `{` в теле бывает словарём: `{"admissionId": …}`. Прежний
+  // порядок находил эту скобку и вырезал по балансу кусок словаря — тело
+  // выходило не функцией, а одним литералом. Замер 2026-11-02: в
+  // `reel_transition_edit.py` так исчезло тело у ВСЕХ 13 функций, и пара
+  // `_image` → `_pin_plan` со сходством 1,000 оказалась сравнением двух
+  // одинаковых фрагментов словаря, а не работ.
+  const indentBody = bodyByIndent(text, from);
+  if (indentBody !== null) return indentBody;
+
   const open = text.indexOf("{", from);
   if (open < 0) {
-    // Тело по отступам: так пишут Python. Скобочный баланс здесь не работает —
-    // у питоновской функции нет фигурных скобок, и прежний код возвращал
-    // одну строку `def ...:`, то есть объявление вместо тела.
-    const indentBody = bodyByIndent(text, from);
-    if (indentBody !== null) return indentBody;
-    const lineEnd = text.indexOf("\n", from);
-    return text.slice(from, lineEnd < 0 ? text.length : lineEnd).trim();
+    // Без `def` и без `{` тела нет: остаток строки годится только как
+    // последняя надежда, и возвращать его целиком нельзя — так в тело
+    // попадает соседний код.
+    return "";
   }
   let depth = 0;
   for (let i = open; i < text.length; i += 1) {
@@ -64,7 +112,14 @@ export function bodyAfter(text: string, from: number): string {
 export function bodyByIndent(text: string, from: number): string | null {
   const lineStart = text.lastIndexOf("\n", from - 1) + 1;
   const head = text.slice(lineStart, text.indexOf("\n", from) < 0 ? text.length : text.indexOf("\n", from));
-  if (!head.trimEnd().endsWith(":")) return null;
+  // `async def boundary(self, ...): ...` — заглушка протокола. Тело пустое, и
+  // признак двоеточия стоит перед многоточием, а не в конце строки. Без этой
+  // ветки заглушка проваливалась к поиску `{` и получала телом первый словарь
+  // из соседнего метода: тринадцать портов сравнивались одним и тем же
+  // литералом `{"admissionId": …}` (замер 2026-11-02).
+  const tail = head.trimEnd();
+  if (tail.endsWith(": ...") || tail === "...") return "";
+  if (!tail.endsWith(":")) return null;
   const baseIndent = head.length - head.trimStart().length;
   const lines = text.slice(text.indexOf("\n", from) + 1).split("\n");
   const body: string[] = [];
@@ -103,10 +158,13 @@ export function functionsIn(code: string, source: string): FnBody[] {
   // «   123→» (cat -n с табуляцией). Без снятия второго разбор по Read
   // находил 0 функций из 1041 прочитанного файла.
   const clean = code.replace(/^[^\n:]+:\d+:/gm, "").replace(/^\s*\d+\t/gm, "");
+  // Скрипт правки не разбираем: в нём тела функций чужого файла лежат
+  // строками, и сравнение с готовым даёт пары, которых нет в приложении.
+  if (PATCH_SCRIPT.test(clean)) return [];
   const found: FnBody[] = [];
   // Класс — первым: его тело длиннее методов, и при схлопывании по имени
   // побеждает именно тело класса.
-  for (const pattern of [CLASS.source, HEAD.source, ASSIGNED.source]) {
+  for (const pattern of [CLASS.source, HEAD.source, METHOD.source, ARROW.source]) {
     const re = new RegExp(pattern, "g");
     let m = re.exec(clean);
     while (m !== null) {

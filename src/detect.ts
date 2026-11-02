@@ -31,7 +31,7 @@ export interface WindowFunction {
   via: "Write" | "Edit";
 }
 
-const NOT_SOURCE = /\.(test|spec|d)\.|\.d\.ts$|\.testCases\./;
+const NOT_SOURCE = /\.(test|spec|d)\.|\.d\.ts$|\.testCases\.|(^|\/)tests?\/|(^|\/)test_[^/]*\.py$|_test\.go$/;
 const SKIP_DIRS = new Set([
   "node_modules", "dist", "build", "out", ".git", "coverage", "landing", ".venv", "vendor", ".next", "release",
 ]);
@@ -85,12 +85,51 @@ export function relativeTo(file: string, repo: string): string {
   return norm;
 }
 
+/**
+ * Каталоги, где вообще есть исходники: `src`, `python`, пакет по имени
+ * репозитория, `gateway`, `app` и подобное.
+ *
+ * Жёсткий список корней уже терял репозитории: у `carousel-demo` код в
+ * `carousel/`, у `ai_halava` в `data/`, и там выходило 0 готовых при живом
+ * коде. Корни ищем по факту, а не по памяти о раскладке.
+ */
+export function sourceRoots(repo: string, extensions: string[], depth = 2): string[] {
+  const exts = extensions.length > 0 ? extensions : ["ts", "tsx", "js", "mjs", "cjs", "py", "go"];
+  const out: string[] = [];
+  const hasSource = (dir: string): boolean => {
+    let entries;
+    try {
+      entries = readdirSync(`${repo}/${dir}`, { withFileTypes: true });
+    } catch {
+      return false;
+    }
+    return entries.some((e) => e.isFile() && exts.some((x) => e.name.endsWith(`.${x}`)));
+  };
+  const walk = (dir: string, d: number): void => {
+    if (d > depth) return;
+    let entries;
+    try {
+      entries = readdirSync(`${repo}/${dir}`, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory() || SKIP_DIRS.has(e.name) || e.name.startsWith(".")) continue;
+      const rel = `${dir}/${e.name}`;
+      if (hasSource(rel)) out.push(rel);
+      walk(rel, d + 1);
+    }
+  };
+  walk(".", 0);
+  return out;
+}
+
 /** Готовое: все функции репозитория, кроме файлов, которые окно писало. */
 export function readyFunctions(repo: string, exclude: Set<string>, roots?: string[], extensions?: string[]): FnBody[] {
   const found: FnBody[] = [];
   const exts = extensions ?? ["ts", "tsx", "js", "mjs", "cjs"];
   const walk = (dir: string, depth: number): void => {
-    if (depth > 7) return;
+    if (depth > 12) return;
     let entries;
     try {
       entries = readdirSync(`${repo}/${dir}`, { withFileTypes: true });
@@ -104,7 +143,10 @@ export function readyFunctions(repo: string, exclude: Set<string>, roots?: strin
         walk(rel, depth + 1);
         continue;
       }
-      if (!exts.some((x) => e.name.endsWith(`.${x}`)) || NOT_SOURCE.test(e.name)) continue;
+      if (!exts.some((x) => e.name.endsWith(`.${x}`))) continue;
+      // Тест не бывает готовым кодом: `tests/`, `test_*.py`, `*.test.ts`,
+      // `*_test.go`. Замер: без этого 22 находки из 114 указывали в тест.
+      if (NOT_SOURCE.test(e.name) || NOT_SOURCE.test(rel)) continue;
       if (exclude.has(rel)) continue;
       let text = "";
       try {
@@ -116,7 +158,11 @@ export function readyFunctions(repo: string, exclude: Set<string>, roots?: strin
       found.push(...functionsIn(text, rel));
     }
   };
-  for (const root of roots ?? ["src"]) walk(root, 0);
+  // Обходим репозиторий целиком: корни, найденные по наличию файлов
+  // напрямую, пропускали `./src`, где исходники лежат только в подкаталогах.
+  // Так из 12 541 готовой функции выпадал `KeyedMutex`.
+  const use = roots ?? ["."];
+  for (const root of use) walk(root.split("\\").join("/").replace(/^\.\//, ""), 0);
   const byName = new Map<string, FnBody>();
   for (const f of found) {
     const prev = byName.get(f.name);

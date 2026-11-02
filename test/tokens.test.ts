@@ -158,4 +158,40 @@ describe("AB-20: поиск велосипеда по токенам", () => {
     const uses = countUses(["const a = KeyedMutex();", "KeyedMutex.run()"]);
     assert.equal(uses.get("KeyedMutex"), 2);
   });
+
+  it("AB-20: тело питоновской функции — по отступам, а не по первой фигурной скобке", () => {
+    const py = [
+      "class Service:",
+      "    def _image(self, digest):",
+      '        return "data:image/png;base64," + base64.b64encode(self.artifacts.read(digest)).decode("ascii")',
+      "",
+      "    async def _pin_plan(self, digest, scenes, historical):",
+      "        children = [] if historical is None else historical",
+      "        for index in (1, 2):",
+      '            child = Model.model_validate({"version": "v1", "model": "m"})',
+      "        return children",
+    ].join("\n");
+    const fns = functionsIn(py, "service.py");
+    const image = fns.find((f) => f.name === "_image");
+    const pin = fns.find((f) => f.name === "_pin_plan");
+    assert.ok(image && pin);
+    // Тело — свои строки, а не первый попавшийся словарь из соседнего метода.
+    assert.ok(image.body.includes("b64encode"));
+    assert.ok(!image.body.includes('"version"'));
+    assert.ok(pin.body.includes("children = []"));
+    assert.ok(pin.body.includes("for index in (1, 2):"));
+  });
+
+  it("AB-20: заглушка протокола `def f(...): ...` не получает чужое тело", () => {
+    const py = [
+      "class Port:",
+      "    async def boundary(self, digest): ...",
+      "",
+      "    async def inspect(self, digest):",
+      "        return await self.backend.read(digest)",
+    ].join("\n");
+    const fns = functionsIn(py, "ports.py");
+    const stub = fns.find((f) => f.name === "boundary");
+    assert.equal(stub, undefined);
+  });
 });
