@@ -10,7 +10,8 @@ import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { judgePairCached } from "../src/verdict.ts";
 
-const KEY_FILE = "C:/Users/stigm/OneDrive/Desktop/machine-transfer-secrets-20260712/drone/lm-saas-repo-secrets.env";
+const KEY_FILE = process.env.ANTIBIKE_KEY_FILE;
+if (!KEY_FILE) throw new Error("нужен ANTIBIKE_KEY_FILE — env с ключом OpenRouter");
 const key = /sk-or-v1-[A-Za-z0-9]+/.exec(readFileSync(KEY_FILE, "utf8"))![0];
 
 interface Hit {
@@ -29,7 +30,7 @@ interface Hit {
 }
 
 const report = JSON.parse(readFileSync(process.argv[2]!, "utf8")) as { hits: Hit[] };
-const PROJECTS = "C:/Users/stigm/.claude/projects";
+const PROJECTS = process.env.ANTIBIKE_PROJECTS ?? `${process.env.USERPROFILE ?? process.env.HOME}/.claude/projects`;
 
 // Пары по правилу подключённости: готовое живое, своё нет.
 const RULE = process.env.RULE !== "off";
@@ -123,7 +124,7 @@ for (const h of unique.values()) {
   console.log(`  ${verdict.same ? "ВЕЛОСИПЕД" : "нет     "}  ${h.own} → ${h.ready}  (${verdict.why})`);
 }
 
-writeFileSync(process.argv[3] ?? "C:/Users/stigm/AppData/Local/Temp/antibike-arbitrated.json", JSON.stringify(results, null, 1), "utf8");
+writeFileSync(process.argv[3] ?? "antibike-arbitrated.json", JSON.stringify(results, null, 1), "utf8");
 const yes = results.filter((r) => r.same);
 console.log(`\nвсего пар: ${results.length}, велосипедов: ${yes.length}`);
 for (const r of yes.sort((a, b) => b.shape - a.shape)) {

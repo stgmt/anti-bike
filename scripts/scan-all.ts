@@ -16,9 +16,9 @@ import { corpus, countUses, detectBikes, relativeTo, readyFunctions, type Window
 import { functionsIn } from "../src/bodies.ts";
 import { absoluteOf, existedAt } from "../src/history.ts";
 
-const ROOT = "C:/Users/stigm/.claude/projects";
-const OUT = process.argv[2] ?? "C:/Users/stigm/AppData/Local/Temp/antibike-all.json";
-const REPORT = process.argv[3] ?? "C:/Users/stigm/AppData/Local/Temp/antibike-all.txt";
+const ROOT = process.env.ANTIBIKE_PROJECTS ?? `${process.env.USERPROFILE ?? process.env.HOME}/.claude/projects`;
+const OUT = process.argv[2] ?? "antibike-all.json";
+const REPORT = process.argv[3] ?? "antibike-all.txt";
 
 const EXT = /\.(ts|tsx|js|mjs|cjs|jsx|py|go)$/;
 const TEST = /\.(test|spec)\.|\.testCases\.|(^|\/)test_|(^|\/)tests\/|_test\.go$|(^|\/)conftest\.py$/;

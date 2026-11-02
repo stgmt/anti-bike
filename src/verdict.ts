@@ -84,26 +84,28 @@ export async function judgePair(
  * новые пары.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
-const CACHE = "C:/Users/stigm/AppData/Local/Temp/antibike-arbiter-cache.json";
+/** Кеш по умолчанию — рядом с прогоном, а не в моём личном Temp. */
+const DEFAULT_CACHE = ".cache/arbiter.json";
 
 function cacheKey(own: string, ready: string, model: string): string {
   return createHash("sha256").update(`${model}\u0000${own}\u0000${ready}`).digest("hex");
 }
 
-function loadCache(): Record<string, PairVerdict> {
+function loadCache(path: string): Record<string, PairVerdict> {
   try {
-    return JSON.parse(readFileSync(CACHE, "utf8")) as Record<string, PairVerdict>;
+    return JSON.parse(readFileSync(path, "utf8")) as Record<string, PairVerdict>;
   } catch {
     return {};
   }
 }
 
-function saveCache(cache: Record<string, PairVerdict>): void {
+function saveCache(path: string, cache: Record<string, PairVerdict>): void {
   try {
-    mkdirSync(CACHE.slice(0, CACHE.lastIndexOf("/")), { recursive: true });
-    writeFileSync(CACHE, JSON.stringify(cache, null, 1), "utf8");
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(cache, null, 1), "utf8");
   } catch {
     // Кеш — ускорение, а не условие: не записался, прогон всё равно идёт.
   }
@@ -120,11 +122,12 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 export async function judgePairCached(
   own: { name: string; body: string },
   ready: { name: string; body: string },
-  options: { apiKey: string; model?: string },
+  options: { apiKey: string; model?: string; cachePath?: string },
 ): Promise<PairVerdict> {
   const model = options.model ?? DEFAULT_ARBITER;
+  const path = options.cachePath ?? DEFAULT_CACHE;
   const key = cacheKey(own.body, ready.body, model);
-  const cache = loadCache();
+  const cache = loadCache(path);
   const hit = cache[key];
   if (hit) return hit;
 
@@ -133,7 +136,7 @@ export async function judgePairCached(
     try {
       const verdict = await judgePair(own, ready, options);
       cache[key] = verdict;
-      saveCache(cache);
+      saveCache(path, cache);
       return verdict;
     } catch (error) {
       lastError = error;

@@ -1,9 +1,0 @@
-**Сущности, классы и слои, которые агент предлагал СОЗДАТЬ (названия дословно):**
-- `RunContext` — предложил своё вместо `LangGraph.Runtime` / `context_schema`.
-- `StepContext` — схема контекста для `StateGraph(context_schema=StepContext)`.
-- Корпусная проверка на утечку фактов поста (AST по строкам литералов + границы слова) — предложил своё вместо удалённого `PRODUCT_EXAMPLE`.
-- Запись `prompt_examples` в таблицу `checks.json`.
-- Журнал `gates/refactor-20261101.md` и отчёты `reports/graph-fixes/prompt-generalization-20261101.md`, `reports/graph-fixes/refactor-options-20261101.md`, `reports/graph-fixes/main-verdict-not-gain-20261031.md`.
-- Родовое правило для писателя: «Слово „решает“ ставится на то, чем читатель платит свой счёт: подписку, тариф, счёт за месяц».
-
-**Ф
