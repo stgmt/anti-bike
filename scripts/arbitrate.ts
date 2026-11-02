@@ -8,7 +8,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { functionsIn } from "../src/bodies.ts";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
-import { judgePair } from "../src/verdict.ts";
+import { judgePairCached } from "../src/verdict.ts";
 
 const KEY_FILE = "C:/Users/stigm/OneDrive/Desktop/machine-transfer-secrets-20260712/drone/lm-saas-repo-secrets.env";
 const key = /sk-or-v1-[A-Za-z0-9]+/.exec(readFileSync(KEY_FILE, "utf8"))![0];
@@ -47,33 +47,31 @@ const bodyCache = new Map<string, { name: string; body: string }[]>();
 async function ownBody(h: Hit): Promise<{ name: string; body: string } | null> {
   const projectDir = `${PROJECTS}/${h.project}`;
   const prefix = h.window.slice(11);
-  // Окно бывает и субагентом: <сессия>/subagents/agent-*.jsonl. Раньше
-  // искался только файл верхнего уровня, и пары субагентов молча терялись.
+  // Своё тело бывает и у субагента: <сессия>/subagents/agent-*.jsonl. Раньше
+  // субагенты искались только когда прямого файла сессии нет, и пары, где
+  // функция написана субагентом, молча терялись — 8 из 30.
+  const candidates: string[] = [];
   const direct = (await import("node:fs")).readdirSync(projectDir).find((f) => f.startsWith(prefix) && f.endsWith(".jsonl"));
-  let file = direct ? `${projectDir}/${direct}` : "";
-  if (!file) {
-    for (const entry of (await import("node:fs")).readdirSync(projectDir, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      try {
-        const sub = (await import("node:fs")).readdirSync(`${projectDir}/${entry.name}/subagents`);
-        const hit = sub.find((f) => f.startsWith(prefix) && f.endsWith(".jsonl"));
-        if (hit) {
-          file = `${projectDir}/${entry.name}/subagents/${hit}`;
-          break;
-        }
-      } catch {}
-    }
+  if (direct) candidates.push(`${projectDir}/${direct}`);
+  for (const entry of (await import("node:fs")).readdirSync(projectDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    try {
+      for (const f of (await import("node:fs")).readdirSync(`${projectDir}/${entry.name}/subagents`)) {
+        if (f.startsWith("agent-") && f.endsWith(".jsonl")) candidates.push(`${projectDir}/${entry.name}/subagents/${f}`);
+      }
+    } catch {}
   }
-  if (!file) return null;
-  const cacheKey = file;
+  if (candidates.length === 0) return null;
+  const cacheKey = candidates.join("|");
   let fns = bodyCache.get(cacheKey);
   if (!fns) {
     fns = [];
+    const byName = new Map<string, { name: string; body: string }>();
+    for (const single of candidates) {
     const lines = createInterface({
-      input: createReadStream(cacheKey, { encoding: "utf8" }),
+      input: createReadStream(single, { encoding: "utf8" }),
       crlfDelay: Infinity,
     });
-    const byName = new Map<string, { name: string; body: string }>();
     for await (const line of lines) {
       if (!line.includes("tool_use")) continue;
       let rec: any;
@@ -97,6 +95,7 @@ async function ownBody(h: Hit): Promise<{ name: string; body: string } | null> {
         }
       }
     }
+    }
     fns = [...byName.values()];
     bodyCache.set(cacheKey, fns);
   }
@@ -119,7 +118,7 @@ for (const h of unique.values()) {
     console.log(`  пропуск ${h.own}: нет готового тела в ${h.readyFile}`);
     continue;
   }
-  const verdict = await judgePair({ name: own.name, body: own.body }, { name: ready.name, body: ready.body }, { apiKey: key });
+  const verdict = await judgePairCached({ name: own.name, body: own.body }, { name: ready.name, body: ready.body }, { apiKey: key });
   results.push({ ...h, same: verdict.same, why: verdict.why });
   console.log(`  ${verdict.same ? "ВЕЛОСИПЕД" : "нет     "}  ${h.own} → ${h.ready}  (${verdict.why})`);
 }

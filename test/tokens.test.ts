@@ -194,4 +194,27 @@ describe("AB-20: поиск велосипеда по токенам", () => {
     const stub = fns.find((f) => f.name === "boundary");
     assert.equal(stub, undefined);
   });
+
+  it("AB-20: копия репозитория в worktree и var/tmp не считается готовым кодом", async () => {
+    const { readyFunctions } = await import("../src/detect.ts");
+    const { mkdtemp, mkdir, writeFile, rm } = await import("node:fs/promises");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = await mkdtemp(join(tmpdir(), "ab-copy-"));
+    try {
+      await mkdir(join(dir, ".claude/worktrees/w/python/bdd"), { recursive: true });
+      await mkdir(join(dir, "var/tmp/snapshot"), { recursive: true });
+      await mkdir(join(dir, "src"), { recursive: true });
+      const body = "export function run(a) {\n  const first = a + 1;\n  const second = first * 2;\n  return second - first;\n}\n";
+      // Одна и та же функция в трёх местах: настоящий исходник и две копии.
+      await writeFile(join(dir, "src/live.ts"), body, "utf8");
+      await writeFile(join(dir, ".claude/worktrees/w/python/bdd/copied.ts"), body, "utf8");
+      await writeFile(join(dir, "var/tmp/snapshot/copied.ts"), body, "utf8");
+      const ready = readyFunctions(dir, new Set(), undefined, ["ts"]);
+      // Сравнение с копией своей же работы давало сходство 1,000.
+      assert.deepEqual(ready.map((f) => f.source), ["./src/live.ts"]);
+    } finally {
+      await rm(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
+    }
+  });
 });

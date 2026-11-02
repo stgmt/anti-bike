@@ -70,3 +70,77 @@ export async function judgePair(
     return { same: false, why: `битый JSON: ${match[0].slice(0, 80)}` };
   }
 }
+
+/**
+ * Повтор на 429 и кеш ответов.
+ *
+ * Замер 2026-11-02: `TeamOperationQueue → KeyedMutex` в первом прогоне получил
+ * «да», во втором «нет» — та же пара, те же тела, temperature 0. Причина в
+ * шлюзе: qwen3.7-flash бывает rate-limited, а прогон из 30 пар обрывается на
+ * середине, и половина списка остаётся без вердикта.
+ *
+ * Кеш лежит в `.cache/arbiter.json` по хешу обоих тел: повторный прогон по тем
+ * же парам бесплатен и даёт те же вердикты, а новый прогон платит только за
+ * новые пары.
+ */
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+
+const CACHE = "C:/Users/stigm/AppData/Local/Temp/antibike-arbiter-cache.json";
+
+function cacheKey(own: string, ready: string, model: string): string {
+  return createHash("sha256").update(`${model}\u0000${own}\u0000${ready}`).digest("hex");
+}
+
+function loadCache(): Record<string, PairVerdict> {
+  try {
+    return JSON.parse(readFileSync(CACHE, "utf8")) as Record<string, PairVerdict>;
+  } catch {
+    return {};
+  }
+}
+
+function saveCache(cache: Record<string, PairVerdict>): void {
+  try {
+    mkdirSync(CACHE.slice(0, CACHE.lastIndexOf("/")), { recursive: true });
+    writeFileSync(CACHE, JSON.stringify(cache, null, 1), "utf8");
+  } catch {
+    // Кеш — ускорение, а не условие: не записался, прогон всё равно идёт.
+  }
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Одна ли работа, с кешем и повтором на 429.
+ *
+ * Пять попыток с нарастающей паузой: rate-limit шлюза проходит за секунды,
+ * а ждать его дешевле, чем бросать прогон на середине списка.
+ */
+export async function judgePairCached(
+  own: { name: string; body: string },
+  ready: { name: string; body: string },
+  options: { apiKey: string; model?: string },
+): Promise<PairVerdict> {
+  const model = options.model ?? DEFAULT_ARBITER;
+  const key = cacheKey(own.body, ready.body, model);
+  const cache = loadCache();
+  const hit = cache[key];
+  if (hit) return hit;
+
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const verdict = await judgePair(own, ready, options);
+      cache[key] = verdict;
+      saveCache(cache);
+      return verdict;
+    } catch (error) {
+      lastError = error;
+      const message = String(error);
+      if (!message.includes("429") && !message.includes("timeout")) throw error;
+      await sleep(2000 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}

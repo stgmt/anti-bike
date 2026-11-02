@@ -36,6 +36,19 @@ const SKIP_DIRS = new Set([
   "node_modules", "dist", "build", "out", ".git", "coverage", "landing", ".venv", "vendor", ".next", "release",
 ]);
 
+/**
+ * Каталоги, где лежит КОПИЯ того же репозитория, а не готовый код.
+ *
+ * `worktrees` — второй чекаут той же ветки; `var/tmp`, `_backup`, `baseline-src`,
+ * `-isolated-check` — снимки и резервные копии, которые агент делает себе сам.
+ * Сравнение с копией даёт сходство 1,000 на собственной работе.
+ *
+ * Замер 2026-11-02: из 106 находок 17 указывали в такие каталоги, и обе
+ * «новые» пары второго прогона (`txv_default_typography`, `developer_starts_run_for_candidate`,
+ * сходство 0,986 и 0,896) оказались парой «функция → её же копия в worktree».
+ */
+const COPY_DIRS = /(^|\/)(?:\.claude\/worktrees|[^/]*worktrees[^/]*|var\/tmp|[^/]*_backup[^/]*|baseline-src|[^/]*-isolated-check[^/]*)\//;
+
 /** Своё: функции, объявленные в Write и Edit окна, из исходников. */
 export async function ownFunctions(transcript: string, sourceFilter: RegExp): Promise<WindowFunction[]> {
   const lines = createInterface({ input: createReadStream(transcript, { encoding: "utf8" }), crlfDelay: Infinity });
@@ -147,6 +160,8 @@ export function readyFunctions(repo: string, exclude: Set<string>, roots?: strin
       // Тест не бывает готовым кодом: `tests/`, `test_*.py`, `*.test.ts`,
       // `*_test.go`. Замер: без этого 22 находки из 114 указывали в тест.
       if (NOT_SOURCE.test(e.name) || NOT_SOURCE.test(rel)) continue;
+      // Копия того же репозитория — не готовый код.
+      if (COPY_DIRS.test(rel)) continue;
       if (exclude.has(rel)) continue;
       let text = "";
       try {
